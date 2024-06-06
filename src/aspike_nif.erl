@@ -146,8 +146,6 @@ host_clear() ->
     not_loaded(?LINE).
 
 % @doc Returns list of [{Hostname, TLSname, Port}]
-%
-% If there is no TLS then TLSname =[],, i.e. empty string.
 -spec host_list() -> {ok, [{inet:ip_address(), string(), non_neg_integer()}]} | {error, term}.
 host_list() ->
     as_render:hosts_render(nif_host_list()).
