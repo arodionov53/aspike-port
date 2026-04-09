@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <chrono>
 
 #include <aerospike/aerospike.h>
 #include <aerospike/aerospike_info.h>
@@ -51,12 +52,17 @@ typedef struct {
     uint32_t count;
 } conversion_data;
 
-struct cdtPutStruct { 
-  std::string bin_name;
+struct cdtPutStructBins { 
   std::string fcap_key;
   std::string fcap_val;
   long fcap_ttl;
 };
+
+struct cdtPutStruct { 
+  std::string bin_name;
+  std::vector<cdtPutStructBins> bins;
+};
+
 // ----------------------------------------------------------------------------
 
 #define OK0\
@@ -1060,7 +1066,8 @@ static void format_value_out(ei_x_buff *p_res_buf, as_val_t type, as_bin_value *
                 const as_orderedmap *vmap = (const as_orderedmap*)as_map_fromval(as_pair_2(apr));
                 as_orderedmap_iterator iti_int;
                 as_orderedmap_iterator_init(&iti_int, vmap);
-                long ttlsm;
+                long ttlsm = 0;
+                long writetime = 0;
                 as_string *vnt_s;
                 as_bytes *vnt_b;
                 uint vnt_type = 0;
@@ -1072,7 +1079,12 @@ static void format_value_out(ei_x_buff *p_res_buf, as_val_t type, as_bin_value *
                          vnt_type = 1;
                         fccount++;
                     }else if(as_pair_2(aprsm)->type == 3){
-                        ttlsm = as_integer_get((as_integer*)as_pair_2(aprsm));
+                        auto smkey = as_string_get((as_string*)as_pair_1(aprsm));
+                        if(strcmp(smkey,"ttl") == 0){
+                            ttlsm = as_integer_get((as_integer*)as_pair_2(aprsm));
+                        }else if(strcmp(smkey,"wt") == 0) {
+                            writetime = as_integer_get((as_integer*)as_pair_2(aprsm));
+                        }
                         fccount++;
                     }else if(as_pair_2(aprsm)->type == 4){
                         vnt_s = as_string_fromval(as_pair_2(aprsm));
@@ -1080,14 +1092,15 @@ static void format_value_out(ei_x_buff *p_res_buf, as_val_t type, as_bin_value *
                         fccount++;
                     }
                 }
-                if(fccount == 2){
-                    ei_x_encode_tuple_header(p_res_buf, 2);
+                if((fccount == 2) || (fccount == 3)){
+                    ei_x_encode_tuple_header(p_res_buf, 3);
                     if(vnt_type == 2){
                         ei_x_encode_binary(p_res_buf, as_string_get(vnt_s), as_string_len(vnt_s));
                     } else if(vnt_type == 1) {
                         ei_x_encode_binary(p_res_buf, as_bytes_get(vnt_b), as_bytes_size(vnt_b));
                     }
                     ei_x_encode_long(p_res_buf, ttlsm);
+                    ei_x_encode_long(p_res_buf, writetime);
                 } else {
                     ei_x_encode_atom(p_res_buf, "undefined");
                 }
@@ -1098,8 +1111,8 @@ static void format_value_out(ei_x_buff *p_res_buf, as_val_t type, as_bin_value *
 
 
             /*auto len = as_map_size((as_map *)(&val->map));
-	        std::vector<ERL_NIF_TERM> * erl_list = new std::vector<ERL_NIF_TERM>();
-	        erl_list->reserve(len*2);
+	        std::vector<ERL_NIF_TERM> erl_list;
+	        erl_list.reserve(len*2);
             
             const as_orderedmap *amap = (const as_orderedmap*)&val->map;
             as_orderedmap_iterator it;
@@ -1108,7 +1121,7 @@ static void format_value_out(ei_x_buff *p_res_buf, as_val_t type, as_bin_value *
                 long fccount = 0;
                 const as_val* val = as_orderedmap_iterator_next(&it);
                 as_pair * apr = as_pair_fromval(val);
-                erl_list->push_back(get_binary_asval(env, as_pair_1(apr)));
+                erl_list.push_back(get_binary_asval(env, as_pair_1(apr)));
 
                 const as_orderedmap *vmap = (const as_orderedmap*)as_map_fromval(as_pair_2(apr));
                 as_orderedmap_iterator iti_int;
@@ -1130,16 +1143,14 @@ static void format_value_out(ei_x_buff *p_res_buf, as_val_t type, as_bin_value *
                 }
                 as_orderedmap_iterator_destroy(&iti_int);
                 if(fccount == 2){
-                    erl_list->push_back(enif_make_tuple2(env, vnt, ttlsm));
+                    erl_list.push_back(enif_make_tuple2(env, vnt, ttlsm));
                 }
             }
             as_orderedmap_iterator_destroy(&it);
-            if(erl_list->size() == 0){
+            if(erl_list.size() == 0){
                 return enif_make_list(env, 0);
             } else {
-	            auto dlret = enif_make_list_from_array(env, erl_list->data(), erl_list->size());
-                delete erl_list;
-                return dlret;
+	            return = enif_make_list_from_array(env, erl_list.data(), erl_list.size());
             }*/
         }break;
         default:
@@ -1764,13 +1775,14 @@ int get_fcaps(const char *buf, int *index, int fcap_list_length, const char* bin
    long len;
 
    for (int i = 0; i < (fcap_list_length / 3); i++) {
+        cdtPutStructBins mybin;
         if (ei_get_type(buf, index, &term_type, &term_size) < 0 || term_type != ERL_BINARY_EXT)
             { return 2; }
         char fcap_key[term_size + 1];
         if (ei_decode_binary(buf, index, fcap_key, &len) < 0) 
             { return 3; }
         fcap_key[len] = '\0';
-        mycdt.fcap_key = std::string(fcap_key);
+        mybin.fcap_key = std::string(fcap_key);
 
         if (ei_get_type(buf, index, &term_type, &term_size) < 0 || term_type != ERL_BINARY_EXT)
             { return 4; }
@@ -1778,16 +1790,17 @@ int get_fcaps(const char *buf, int *index, int fcap_list_length, const char* bin
         if (ei_decode_binary(buf, index, fcap_val, &len) < 0) 
             { return 5; }
         fcap_val[len] = '\0';
-        mycdt.fcap_val = std::string(fcap_val);
+        mybin.fcap_val = std::string(fcap_val);
 
         if (ei_get_type(buf, index, &term_type, &term_size) < 0 || !( term_type == ERL_SMALL_INTEGER_EXT || term_type == ERL_INTEGER_EXT ))
             { return 6; }
         long fcap_ttl;
         ei_decode_long(buf, index, &fcap_ttl);
-        mycdt.fcap_ttl = fcap_ttl;
+        mybin.fcap_ttl = fcap_ttl;
+        mycdt.bins.push_back(mybin);
    }
-            int fll;
-            ei_decode_list_header(buf, index, &fll);
+   int fll;
+   ei_decode_list_header(buf, index, &fll);
    return 0;
 }
 
@@ -1816,7 +1829,7 @@ int get_bins(const char *buf, int *index, int bin_list_length, cdtPutStruct &myc
             if(ei_decode_list_header(buf, index, &fcap_list_length) < 0)
                 { return 5; }
 
-            int ret = get_fcaps(buf, index, fcap_list_length, bin_name, mycdt);
+            (void)get_fcaps(buf, index, fcap_list_length, bin_name, mycdt);
 
         } else {
             return 1;
@@ -1862,13 +1875,12 @@ int call_port_cdt_put(const char *buf, int *index, int arity, int fd_out) {
     if(ei_decode_list_header(buf, index, &bin_list_length) < 0)
         {STOPERROR("invalid list of bins")}
 
-    as_cdt_ctx ctx;
-    as_cdt_ctx_inita(&ctx, 1);
-    as_operations ops;
-    as_operations_inita(&ops, 2);
     cdtPutStruct mycdt; 
     get_bins(buf, index, bin_list_length, mycdt);
-        
+    as_operations ops;
+    as_operations_inita(&ops, mycdt.bins.size() * 3);
+    std::vector<as_cdt_ctx*> ctx_vec;
+
     if (ei_get_type(buf, index, &term_type, &term_size) < 0 || !( term_type == ERL_SMALL_INTEGER_EXT || term_type == ERL_INTEGER_EXT ))
         { 
             logfile("CPCP6 errr: " + std::to_string(term_type));
@@ -1908,6 +1920,7 @@ int call_port_cdt_put(const char *buf, int *index, int arity, int fd_out) {
 	as_record_inita(&rec, bin_list_length);
     if(record_ttl != 0){
         rec.ttl = record_ttl;
+        ops.ttl = record_ttl;
     }
     
 
@@ -1922,7 +1935,7 @@ int call_port_cdt_put(const char *buf, int *index, int arity, int fd_out) {
         
         as_map_policy put_mode;
         as_map_policy_set(&put_mode, AS_MAP_KEY_ORDERED, AS_MAP_UPDATE);
-        as_string key_str;
+        /*as_string key_str;
         as_string_init(&key_str, (char*)mycdt.fcap_key.c_str(), false);
         as_cdt_ctx_add_map_key_create(&ctx, (as_val*)&key_str, AS_MAP_KEY_ORDERED);
         as_string subkey1;            
@@ -1933,11 +1946,51 @@ int call_port_cdt_put(const char *buf, int *index, int arity, int fd_out) {
         as_bytes_set(&subval1, 0, (const uint8_t*)mycdt.fcap_val.c_str(), mycdt.fcap_val.length());
         as_operations_map_put(&ops, mycdt.bin_name.c_str(), &ctx, &put_mode, (as_val*)&subkey1, (as_val*)&subval1);
         std::string valuesk1("ttl");
-        as_string subkey2;
-        as_integer subval2;
+        as_string subkey2, subkey3;
+        as_integer subval2, subval3;
         as_string_init(&subkey2, (char*)valuesk1.c_str(), false);
         as_integer_init(&subval2, mycdt.fcap_ttl);
         as_operations_map_put(&ops, mycdt.bin_name.c_str(), &ctx, &put_mode, (as_val*)&subkey2, (as_val*)&subval2);
+                
+        //subkey write time
+        auto now = std::chrono::system_clock::now().time_since_epoch();
+        long wt = std::chrono::duration_cast<std::chrono::seconds>(now).count();
+        std::string valuesk2("wt");
+        as_string_init(&subkey3, (char*)valuesk2.c_str(), false);
+        as_integer_init(&subval3, wt);
+        as_operations_map_put(&ops, mycdt.bin_name.c_str(), &ctx, &put_mode, (as_val*)&subkey3, (as_val*)&subval3);
+        */
+
+    for(cdtPutStructBins lbin: mycdt.bins){
+        ctx_vec.push_back(as_cdt_ctx_create(1));
+        as_string key_str;
+        as_string_init(&key_str, (char*)lbin.fcap_key.c_str(), false);
+        as_cdt_ctx_add_map_key_create(ctx_vec.back(), (as_val*)&key_str, AS_MAP_KEY_ORDERED);
+
+        as_string subkey1;            
+        std::string valuesk("value"); 
+        as_string_init(&subkey1, (char*)valuesk.c_str(), false);
+        as_bytes subval1;
+        as_bytes_inita(&subval1, lbin.fcap_val.length());
+        as_bytes_set(&subval1, 0, (const uint8_t*)lbin.fcap_val.c_str(), lbin.fcap_val.length());
+        as_operations_map_put(&ops, mycdt.bin_name.c_str(), ctx_vec.back(), &put_mode, (as_val*)&subkey1, (as_val*)&subval1);
+
+        std::string valuesk1("ttl");
+        as_string subkey2, subkey3;
+        as_integer subval2, subval3;
+        as_string_init(&subkey2, (char*)valuesk1.c_str(), false);
+        as_integer_init(&subval2, lbin.fcap_ttl);
+        as_operations_map_put(&ops, mycdt.bin_name.c_str(), ctx_vec.back(), &put_mode, (as_val*)&subkey2, (as_val*)&subval2);
+
+        //subkey write time
+        auto now = std::chrono::system_clock::now().time_since_epoch();
+        long wt = std::chrono::duration_cast<std::chrono::seconds>(now).count();
+        std::string valuesk2("wt");
+        as_string_init(&subkey3, (char*)valuesk2.c_str(), false);
+        as_integer_init(&subval3, wt);
+        as_operations_map_put(&ops, mycdt.bin_name.c_str(), ctx_vec.back(), &put_mode, (as_val*)&subkey3, (as_val*)&subval3);
+    }
+
 
     if(aerospike_key_operate(&as, &err, &p, &key, &ops, &rec1) != AEROSPIKE_OK){
         STOPERROR(err.message)
@@ -1946,6 +1999,11 @@ int call_port_cdt_put(const char *buf, int *index, int arity, int fd_out) {
     }
     as_operations_destroy(&ops);
     as_key_destroy(&key);
+    
+    //destroy all contexts
+    for (as_cdt_ctx* pctx : ctx_vec){
+        as_cdt_ctx_destroy(pctx);
+    }
     
     OK("cdt_put")
     POST
