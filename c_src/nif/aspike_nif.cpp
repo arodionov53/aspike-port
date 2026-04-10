@@ -2126,7 +2126,7 @@ static ERL_NIF_TERM bar_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 static ErlNifFunc nif_funcs[] = {
     {"as_init", 0, as_init},
     NIF_FUN("connect", 2, connect),
-    NIF_FUN("check_connection", 2, check_connection),
+    NIF_FUN("check_connection", 0, check_connection),
     NIF_FUN("nif_host_add", 2, host_add),
     NIF_FUN("host_clear", 0, host_clear),
     NIF_FUN("nif_host_list", 0, host_list),
