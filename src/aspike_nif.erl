@@ -15,6 +15,7 @@
     host_list/0,
     connect/0,
     connect/2,
+    check_connection/0,
     key_exists/0,
     key_exists/1,
     key_exists/3,
@@ -167,6 +168,10 @@ connect() ->
 % @doc Create connection using User and PWd credential
 -spec connect(string(), string()) -> {ok, atom()} | {error, string()}.
 connect(_, _) ->
+    not_loaded(?LINE).
+
+-spec check_connection() -> atom().
+check_connection() ->
     not_loaded(?LINE).
 
 key_exists() ->

@@ -181,7 +181,7 @@ static ERL_NIF_TERM host_list(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
 //
 // Returns:
 //   {ok, connected} - Successfully connected with active servers available
-//   {ok, no_active_servers_found} - In cluster connected state but no active
+//   {ok, no_active_servers_found} - In a cluster connected state but no active
 //          aerospike servers are found, thus, the cluster is empty.
 //   {error, ErrorMessage} - Connection failed with error description
 static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -222,6 +222,29 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     return response;
+}
+
+// -spec check_connection() -> atom().
+//
+// Returns connection status to Aerospike cluster.
+//
+// Returns:
+//   disconnected - Disconnected from aerospike cluster.
+//   connected - Successfully connected with active servers available
+//   no_active_servers_found - In a cluster connected state but no active
+//          aerospike servers are found, thus, the cluster is empty.
+//   {error, ErrorMessage} - Connection failed with error description
+static ERL_NIF_TERM check_connection(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    if (!is_aerospike_initialised) {
+        return enif_make_tuple2(env, erl_ok, enif_make_atom(env, "disconnected"));
+    }
+
+    if (aerospike_cluster_is_connected(&as)) {
+        return enif_make_tuple2(env, erl_ok, enif_make_atom(env, "connected"));
+    }
+
+    return enif_make_tuple2(env, erl_ok, enif_make_atom(env, "no_active_servers_found"));
 }
 
 static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -2103,6 +2126,7 @@ static ERL_NIF_TERM bar_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 static ErlNifFunc nif_funcs[] = {
     {"as_init", 0, as_init},
     NIF_FUN("connect", 2, connect),
+    NIF_FUN("check_connection", 2, check_connection),
     NIF_FUN("nif_host_add", 2, host_add),
     NIF_FUN("host_clear", 0, host_clear),
     NIF_FUN("nif_host_list", 0, host_list),
