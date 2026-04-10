@@ -237,14 +237,14 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 static ERL_NIF_TERM check_connection(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     if (!is_aerospike_initialised) {
-        return enif_make_tuple2(env, erl_ok, enif_make_atom(env, "disconnected"));
+        return enif_make_atom(env, "disconnected");
     }
 
     if (aerospike_cluster_is_connected(&as)) {
-        return enif_make_tuple2(env, erl_ok, enif_make_atom(env, "connected"));
+        return enif_make_atom(env, "connected");
     }
 
-    return enif_make_tuple2(env, erl_ok, enif_make_atom(env, "no_active_servers_found"));
+    return enif_make_atom(env, "no_active_servers_found");
 }
 
 static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])

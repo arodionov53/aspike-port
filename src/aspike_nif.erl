@@ -74,6 +74,7 @@
     host_clear/0,
     nif_host_list/0,
     connect/2,
+    check_connection/0,
     key_exists/3,
     key_inc/4,
     key_get/3,
