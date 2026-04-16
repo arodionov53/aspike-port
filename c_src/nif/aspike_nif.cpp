@@ -233,7 +233,6 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 //   connected - Successfully connected with active servers available
 //   no_active_servers_found - In a cluster connected state but no active
 //          aerospike servers are found, thus, the cluster is empty.
-//   {error, ErrorMessage} - Connection failed with error description
 static ERL_NIF_TERM check_connection(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     if (!is_aerospike_initialised) {
