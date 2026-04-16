@@ -209,9 +209,11 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         response = enif_make_tuple2(env, erl_error, error_msg);
     } else {
         is_connected = true;
-        // Check if we're actually connected to live servers
-        // aerospike_connect() succeeds even with fail_if_not_connected=false
-        // but this checks if cluster has active, responding nodes
+        // Check if we're actually connected to live servers.
+        // aerospike_connect() returns true with 'fail_if_not_connected' flag set to false
+        // even if there are no live aerospike servers to be connected to, so aerospike_connect()
+        // is useless to tell us if we are connected. On the other hand, the function
+        // aerospike_cluster_is_connected() returns true if we are connected to the cluster.
         ERL_NIF_TERM status;
         if (aerospike_cluster_is_connected(&as)) {
             status = enif_make_atom(env, "connected");
@@ -225,25 +227,24 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 }
 
 // -spec check_connection() -> atom().
-//
-// Returns connection status to Aerospike cluster.
-//
-// Returns:
-//   disconnected - Disconnected from aerospike cluster.
-//   connected - Successfully connected with active servers available
-//   no_active_servers_found - In a cluster connected state but no active
-//          aerospike servers are found, thus, the cluster is empty.
+// Provides connection status to Aerospike cluster.
+// Returns one of the atom:
+// disconnected - The c-clibrary library is not connected to the cluster NOR
+//      it tries to get connected to the cluster.
+// no_active_servers_found - The c-clibrary library is not connected to the
+//      cluster BUT it tries to get connected to the cluster.
+// connected - Successfully connected to the cluster.
 static ERL_NIF_TERM check_connection(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     if (!is_aerospike_initialised) {
         return enif_make_atom(env, "disconnected");
     }
 
-    if (aerospike_cluster_is_connected(&as)) {
-        return enif_make_atom(env, "connected");
+    if (!aerospike_cluster_is_connected(&as)) {
+        return enif_make_atom(env, "no_active_servers_found");
     }
 
-    return enif_make_atom(env, "no_active_servers_found");
+    return enif_make_atom(env, "connected");
 }
 
 static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
