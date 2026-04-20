@@ -35,7 +35,6 @@ application:set_env(aspike_port, host, "Aerospike-discovery-node-ip").
 application:set_env(aspike_port, psw, "Aerospike-password").
 application:set_env(aspike_port, port, 3000).
 application:set_env(aspike_port, user, "Aerospike-username").
-aspike_nif:as_init().
 aspike_nif:host_add().
 aspike_nif:connect().
 ```

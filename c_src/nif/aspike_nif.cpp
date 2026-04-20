@@ -52,38 +52,28 @@
 // ----------------------------------------------------------------------------
 
 static aerospike as;
-static bool is_aerospike_initialised = false;
-static bool is_connected = false;
-static ERL_NIF_TERM erl_error;
-static ERL_NIF_TERM erl_ok;
+static bool is_connected_flag = false;
+static ERL_NIF_TERM atom_error;
+static ERL_NIF_TERM atom_ok;
+static ERL_NIF_TERM atom_true;
+static ERL_NIF_TERM atom_false;
+static ERL_NIF_TERM atom_connected;
+static ERL_NIF_TERM atom_undefined;
 
 // ----------------------------------------------------------------------------
 
-#define CHECK_AEROSPIKE_INIT \
-    if (!is_aerospike_initialised) {\
+#define CHECK_IF_CONNECTED \
+    if (!is_connected_flag) {\
         return enif_make_tuple2(env,\
-            enif_make_atom(env, "error"),\
-            enif_make_string(env, "aerospike not initialised", ERL_NIF_UTF8));\
-    }
-
-#define CHECK_IS_CONNECTED \
-    if (!is_connected) {\
-        return enif_make_tuple2(env,\
-            enif_make_atom(env, "error"),\
+            atom_error,\
             enif_make_string(env, "not connected", ERL_NIF_UTF8));\
     }
-
-#define CHECK_INIT CHECK_AEROSPIKE_INIT
-
-#define CHECK_ALL\
-    CHECK_INIT\
-    CHECK_IS_CONNECTED
 
 // ----------------------------------------------------------------------------
 
 #define RETURN_ERROR_WITH_MSG_IF(t_var, p_rec, err_code, err_msg) \
     if(t_var) { \
-        rc = erl_error; \
+        rc = atom_error; \
         code = enif_make_int(env, int(err_code)); \
         msg = enif_make_string(env, err_msg, ERL_NIF_UTF8); \
         if(!p_rec) { \
@@ -93,26 +83,24 @@ static ERL_NIF_TERM erl_ok;
     }
 
 // ----------------------------------------------------------------------------
-
-static ERL_NIF_TERM as_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
-    if (!is_aerospike_initialised) {
-        as_config config;
-        as_config_init(&config);
+    as_config config;
+    as_config_init(&config);
 
-        // enable constant auto-connection to the cluster no matter what.
-        // as a side-effect, the aerospike_connect() function will report
-        // "connected" even despite a fact the aerospike cluster might be down
-        // currently.
-        config.fail_if_not_connected = false;
-        
-        aerospike_init(&as, &config);
-        is_aerospike_initialised = true;
-    }
-    erl_error = enif_make_atom(env, "error");
-    erl_ok = enif_make_atom(env, "ok");
-    ERL_NIF_TERM msg = enif_make_string(env, "initialised", ERL_NIF_UTF8);
-    return enif_make_tuple2(env, erl_ok, msg);
+    aerospike_init(&as, &config);
+
+    // the following atoms are definitely present in the VM but to keep code short and
+    // simple we call enif_make_atom() instead of enif_make_existing_atom(). Plus, who
+    // knows, maybe atoms can be missing, so it's a safe way to do.
+    atom_error = enif_make_atom(env, "error");
+    atom_ok = enif_make_atom(env, "ok");
+    atom_true = enif_make_atom(env, "true");
+    atom_false = enif_make_atom(env, "false");
+    atom_undefined = enif_make_atom(env, "undefined");
+    atom_connected = enif_make_atom(env, "connected");
+
+    return 0;
 }
 
 static ERL_NIF_TERM host_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -125,15 +113,14 @@ static ERL_NIF_TERM host_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     if (!enif_get_int(env, argv[1], &port)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_INIT
 
     ERL_NIF_TERM rc, msg;
 
     if (! as_config_add_hosts(&as.config, host, port)) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "failed to add host and port", ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "host and port added", ERL_NIF_UTF8);
     }
 
@@ -142,16 +129,14 @@ static ERL_NIF_TERM host_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 
 static ERL_NIF_TERM host_clear(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_INIT
     as_config_clear_hosts(&as.config);
-    ERL_NIF_TERM rc = erl_ok;
+    ERL_NIF_TERM rc = atom_ok;
     ERL_NIF_TERM msg = enif_make_string(env, "hosts list was cleared", ERL_NIF_UTF8);
     return enif_make_tuple2(env, rc, msg);
 }
 
 static ERL_NIF_TERM host_list(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_INIT
     as_config  *config = &as.config;   
     as_vector  *hosts = config->hosts;
     uint32_t size = (hosts == NULL) ? 0 : hosts->size;
@@ -168,21 +153,15 @@ static ERL_NIF_TERM host_list(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
         msg = enif_make_list_cell(env, cell, msg);
 	}
 
-    return enif_make_tuple2(env, erl_ok, msg);
+    return enif_make_tuple2(env, atom_ok, msg);
 }
 
 // -spec connect(User :: string(), Password :: string()) ->
 //     {ok, atom()} |
 //     {error, string()}.
-//
 // Connects to Aerospike cluster with authentication.
-// Unlike basic aerospike_connect(), this function verifies that the cluster
-// has active, responding servers using aerospike_cluster_is_connected().
-//
 // Returns:
-//   {ok, connected} - Successfully connected with active servers available
-//   {ok, no_active_servers_found} - In a cluster connected state but no active
-//          aerospike servers are found, thus, the cluster is empty.
+//   {ok, connected} - Successfully connected to aerospike cluster
 //   {error, ErrorMessage} - Connection failed with error description
 static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -195,7 +174,6 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_string(env, argv[1], password, AS_PASSWORD_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_AEROSPIKE_INIT
 
     as_config_set_user(&as.config, user, password);
 
@@ -203,48 +181,35 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     ERL_NIF_TERM response;
     as_status rc = aerospike_connect(&as, &err);
     if (rc != AEROSPIKE_OK) {
-        is_connected = false;
+        is_connected_flag = false;
         ERL_NIF_TERM error_msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
-        
-        response = enif_make_tuple2(env, erl_error, error_msg);
+        response = enif_make_tuple2(env, atom_error, error_msg);
     } else {
-        is_connected = true;
-        // Check if we're actually connected to live servers.
-        // aerospike_connect() returns true with 'fail_if_not_connected' flag set to false
-        // even if there are no live aerospike servers to be connected to, so aerospike_connect()
-        // is useless to tell us if we are connected. On the other hand, the function
-        // aerospike_cluster_is_connected() returns true if we are connected to the cluster.
-        ERL_NIF_TERM status;
-        if (aerospike_cluster_is_connected(&as)) {
-            status = enif_make_atom(env, "connected");
-        } else {
-            status = enif_make_atom(env, "no_active_servers_found");
-        }
-        response = enif_make_tuple2(env, erl_ok, status);
+        is_connected_flag = true;
+        response = enif_make_tuple2(env, atom_ok, atom_connected);
     }
 
     return response;
 }
 
-// -spec check_connection() -> atom().
+// -spec is_connected_check() -> false | true.
 // Provides connection status to Aerospike cluster.
 // Returns one of the atom:
-// disconnected - The c-clibrary library is not connected to the cluster NOR
-//      it tries to get connected to the cluster.
-// no_active_servers_found - The c-clibrary library is not connected to the
-//      cluster BUT it tries to get connected to the cluster.
-// connected - Successfully connected to the cluster.
-static ERL_NIF_TERM check_connection(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+// false - not connected to the cluster OR we lost connections to all cluster nodes.
+// true - successfully connected to the cluster or at least to one of the cluster node.
+static ERL_NIF_TERM is_connected_check(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    if (!is_aerospike_initialised) {
-        return enif_make_atom(env, "disconnected");
+    if (!is_connected_flag) {
+        return atom_false;
     }
 
     if (!aerospike_cluster_is_connected(&as)) {
-        return enif_make_atom(env, "no_active_servers_found");
+        // aerospike_cluster_is_connected() returns false if we lost connection to
+        // all cluster nodes
+        return atom_false;
     }
 
-    return enif_make_atom(env, "connected");
+    return atom_true;
 }
 
 static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -280,12 +245,12 @@ static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
 
     ERL_NIF_TERM rc, msg;
     if (length == 0) {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_put", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
 	as_error err;
     as_key key;
@@ -320,10 +285,10 @@ static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     }
 	
     if (aerospike_key_put(&as, &err, NULL, &key, &rec)  != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_put", ERL_NIF_UTF8);
     }
 
@@ -378,12 +343,12 @@ static ERL_NIF_TERM cdt_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     
     ERL_NIF_TERM rc, msg;
     if (length == 0) {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "put", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
 	as_error err;
     as_key key;
@@ -527,10 +492,10 @@ static ERL_NIF_TERM cdt_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     p.base.total_timeout = total_timeout;
 
     if(aerospike_key_operate(&as, &err, &p, &key, &ops, &rec1) != AEROSPIKE_OK){
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "put", ERL_NIF_UTF8);
         as_record_destroy(&rec);
     }
@@ -579,12 +544,12 @@ static ERL_NIF_TERM binary_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
 
     ERL_NIF_TERM rc, msg;
     if (length == 0) {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_put", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
 	as_error err;
     as_key key;
@@ -672,10 +637,10 @@ static ERL_NIF_TERM binary_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     }
 	
     if (aerospike_key_put(&as, &err, NULL, &key, &rec)  != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_put", ERL_NIF_UTF8);
     }
     for(unsigned int i = 0; i < bin_vec.size(); i++){
@@ -705,11 +670,11 @@ static ERL_NIF_TERM key_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_is_list(env, list) || !enif_get_list_length(env, list, &length)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
                                         // enif_get_list_length(env, *val, &len);
     ERL_NIF_TERM rc, msg;
     if (length == 0) {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_put", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
@@ -747,10 +712,10 @@ static ERL_NIF_TERM key_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     if (aerospike_key_put(&as, &err, NULL, &key, &rec)  != AEROSPIKE_OK) {
-        rc = erl_error;;
+        rc = atom_error;;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_put", ERL_NIF_UTF8);
     }
 
@@ -777,11 +742,11 @@ static ERL_NIF_TERM key_inc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_is_list(env, list) || !enif_get_list_length(env, list, &length)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
     if (length == 0) {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_inc", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
@@ -818,10 +783,10 @@ static ERL_NIF_TERM key_inc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     if (aerospike_key_operate(&as, &err, NULL, &key, &ops, NULL)  != AEROSPIKE_OK) {
-        rc = erl_error;;
+        rc = atom_error;;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "key_inc", ERL_NIF_UTF8);
     }
 
@@ -860,7 +825,7 @@ static ERL_NIF_TERM a_key_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     if (!enif_get_long(env, argv[5], &n)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -879,7 +844,7 @@ static ERL_NIF_TERM a_key_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
 
     for (uint i=0; i < n; i++) {
         if (aerospike_key_put(&as, &err, NULL, &key, &rec)  != AEROSPIKE_OK) {
-            rc = erl_error;
+            rc = atom_error;
             msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
             return enif_make_tuple2(env, rc, msg);
         }
@@ -890,7 +855,7 @@ static ERL_NIF_TERM a_key_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     ErlNifSInt64 thread_tspent = (thread_done.tv_sec - thread_start.tv_sec) * 1000000 + (thread_done.tv_nsec - thread_start.tv_nsec) / 1000;
     ErlNifSInt64 real_tspent = (real_done.tv_sec - real_start.tv_sec) * 1000000 + (real_done.tv_nsec - real_start.tv_nsec) / 1000;
 
-    rc = erl_ok;
+    rc = atom_ok;
 
     ERL_NIF_TERM keys[3];
     ERL_NIF_TERM vals[3];
@@ -921,7 +886,7 @@ static ERL_NIF_TERM key_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -930,10 +895,10 @@ static ERL_NIF_TERM key_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
 	as_key_init_str(&key, name_space, set, key_str);
 
     if (aerospike_key_remove(&as, &err, NULL, &key)  != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc =erl_ok;
+        rc =atom_ok;
         msg = enif_make_string(env, "key_remove", ERL_NIF_UTF8);
     }
 
@@ -1015,7 +980,7 @@ static ERL_NIF_TERM format_value_out(ErlNifEnv* env, as_val_t type, as_bin_value
                 const as_orderedmap *vmap = (const as_orderedmap*)as_map_fromval(as_pair_2(apr));
                 as_orderedmap_iterator iti_int;
                 as_orderedmap_iterator_init(&iti_int, vmap);
-                ERL_NIF_TERM vnt = enif_make_atom(env, "undefined");
+                ERL_NIF_TERM vnt = atom_undefined;
                 ERL_NIF_TERM ttlsm = enif_make_int64(env, 0);
                 ERL_NIF_TERM writetime = enif_make_int64(env, 0);
                 while ( as_orderedmap_iterator_has_next(&iti_int) ) {
@@ -1105,7 +1070,7 @@ static ERL_NIF_TERM key_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1118,18 +1083,18 @@ static ERL_NIF_TERM key_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         if (p_rec != NULL) {
             as_record_destroy(p_rec);
         }
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
     if (p_rec == NULL) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "NULL p_rec - internal error", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
 
     msg = dump_records(env, p_rec);
-    rc = erl_ok;
+    rc = atom_ok;
     if (p_rec != NULL) {
         as_record_destroy(p_rec);
     }
@@ -1247,7 +1212,7 @@ static ERL_NIF_TERM cdt_expire(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
         return enif_make_badarg(env);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1299,10 +1264,10 @@ static ERL_NIF_TERM cdt_expire(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     as_arraylist_destroy(&remove_list);*/
 
     if(aerospike_key_operate(&as, &err, NULL, &key, &ops, NULL) != AEROSPIKE_OK){
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "muhahah", ERL_NIF_UTF8);
     }
     as_operations_destroy(&ops);
@@ -1337,7 +1302,7 @@ static ERL_NIF_TERM cdt_delete_by_keys_batch(ErlNifEnv* env, int argc, const ERL
 	    return enif_make_badarg(env);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     std::vector<std::string> bin_str_list(length);
     std::vector<std::vector<std::string>> skeys_lst; 
@@ -1424,11 +1389,11 @@ static ERL_NIF_TERM cdt_delete_by_keys_batch(ErlNifEnv* env, int argc, const ERL
 
     as_batch_records_destroy(&recs);
     if(status != AEROSPIKE_OK){
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     } else {
-        rc = erl_ok; 
+        rc = atom_ok; 
         return enif_make_tuple2(env, rc, opsl);
     }
 }
@@ -1464,7 +1429,7 @@ static ERL_NIF_TERM cdt_delete_by_keys(ErlNifEnv* env, int argc, const ERL_NIF_T
 	    return enif_make_badarg(env);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     
     as_arraylist remove_list;
 	as_arraylist_init(&remove_list, length, length);
@@ -1503,10 +1468,10 @@ static ERL_NIF_TERM cdt_delete_by_keys(ErlNifEnv* env, int argc, const ERL_NIF_T
     as_arraylist_destroy(&remove_list);
 
     if(aerospike_key_operate(&as, &err, NULL, &key, &ops, NULL) != AEROSPIKE_OK){
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, "keys_deleted", ERL_NIF_UTF8);
     }
     as_operations_destroy(&ops);
@@ -1549,7 +1514,7 @@ static ERL_NIF_TERM cdt_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     enif_get_long(env, policy[2], &socket_timeout);
     enif_get_long(env, policy[3], &total_timeout);
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1568,7 +1533,7 @@ static ERL_NIF_TERM cdt_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         if (p_rec != NULL) {
             as_record_destroy(p_rec);
         }
-        rc = erl_error;
+        rc = atom_error;
         as_key_destroy(&key);
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
@@ -1576,13 +1541,13 @@ static ERL_NIF_TERM cdt_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     as_key_destroy(&key);
     if (p_rec == NULL) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "NULL p_rec - internal error", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
 
     msg = dump_cdt_records(env, p_rec);
-    rc = erl_ok;
+    rc = atom_ok;
     if (p_rec != NULL) {
         as_record_destroy(p_rec);
     }
@@ -1611,7 +1576,7 @@ static ERL_NIF_TERM binary_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     }
     aspk_key.assign((const char*) bin_key.data, bin_key.size);
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1624,18 +1589,18 @@ static ERL_NIF_TERM binary_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
         if (p_rec != NULL) {
             as_record_destroy(p_rec);
         }
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
     if (p_rec == NULL) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "NULL p_rec - internal error", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
 
     msg = dump_binary_records(env, p_rec);
-    rc = erl_ok;
+    rc = atom_ok;
     if (p_rec != NULL) {
         as_record_destroy(p_rec);
     }
@@ -1669,7 +1634,7 @@ static ERL_NIF_TERM segment_tag_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM
     }
     aspk_columns.assign((const char*) bin_columns.data, bin_columns.size);
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, code, msg;
     as_error err;
@@ -1739,7 +1704,7 @@ static ERL_NIF_TERM segment_tag_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM
         res = map_term;
     }
 
-    rc = erl_ok;
+    rc = atom_ok;
     code = enif_make_int(env, int(AEROSPIKE_OK));
     if (p_rec != NULL) {
         as_record_destroy(p_rec);
@@ -1770,13 +1735,13 @@ static ERL_NIF_TERM key_select(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     if (!enif_is_list(env, list) || !enif_get_list_length(env, list, &length)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 
     if (length == 0) {
         msg = enif_make_list(env, 0);  // empty list
-        rc = erl_ok;
+        rc = atom_ok;
         return enif_make_tuple2(env, rc, msg);
     }
 
@@ -1801,13 +1766,13 @@ static ERL_NIF_TERM key_select(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
 	as_key_init_str(&key, name_space, set, key_str);
 
     if (aerospike_key_select(&as, &err, NULL, &key, bins, &p_rec)  != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
 
     msg = dump_records(env, p_rec);
-    rc = erl_ok;
+    rc = atom_ok;
     for (uint j = 0; j < i; j++) {
         delete(bins[j]);
     }
@@ -1833,7 +1798,7 @@ static ERL_NIF_TERM key_generation(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1843,12 +1808,12 @@ static ERL_NIF_TERM key_generation(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
 	as_key_init_str(&key, name_space, set, key_str);
 
     if (aerospike_key_get(&as, &err, NULL, &key, &p_rec)  != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
     if (p_rec == NULL) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "NULL p_rec - internal error", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);
     }
@@ -1859,7 +1824,7 @@ static ERL_NIF_TERM key_generation(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
     keys[1] = enif_make_string(env, "ttl", ERL_NIF_UTF8);
     vals[1] = enif_make_uint64(env, p_rec->ttl);
     enif_make_map_from_arrays(env, keys, vals, 2, &msg);
-    rc = erl_ok;
+    rc = atom_ok;
     as_record_destroy(p_rec);
     return enif_make_tuple2(env, rc, msg);
 }
@@ -1879,9 +1844,9 @@ static ERL_NIF_TERM key_exists(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
-    ERL_NIF_TERM rc, msg;
+    ERL_NIF_TERM msg;
     as_error err;
     as_key key;
     as_record* p_rec = NULL;    
@@ -1890,28 +1855,25 @@ static ERL_NIF_TERM key_exists(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     int as_rc = aerospike_key_exists(&as, &err, NULL, &key, &p_rec);
 
     if (as_rc != AEROSPIKE_OK) {
-        rc = erl_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
-        return enif_make_tuple2(env, rc, msg);
+        return enif_make_tuple2(env, atom_error, msg);
     }
-    rc = erl_ok;
-    static ERL_NIF_TERM tr = enif_make_atom(env, "true");
     if (p_rec != NULL) {
         as_record_destroy(p_rec);
     }
-    return enif_make_tuple2(env, rc, tr);
+    return enif_make_tuple2(env, atom_ok, atom_true);
 }
 
 static ERL_NIF_TERM node_random(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     as_node* node = as_node_get_random(as.cluster);
     if (! node) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "Failed to find server node.", ERL_NIF_UTF8);
 	} else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, as_node_get_address_string(node), ERL_NIF_UTF8);
         as_node_release(node);
     }
@@ -1921,7 +1883,7 @@ static ERL_NIF_TERM node_random(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
 
 static ERL_NIF_TERM node_names(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc;
 	as_nodes* nodes = as_nodes_reserve(as.cluster);
     uint32_t n_nodes = (nodes == NULL) ? 0 : nodes->size;
@@ -1938,7 +1900,7 @@ static ERL_NIF_TERM node_names(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
         lst = enif_make_list_cell(env, cell, lst);    
     }
 
-    rc = erl_ok;
+    rc = atom_ok;
     as_nodes_release(nodes);
 
     return enif_make_tuple2(env, rc, lst);   
@@ -1950,15 +1912,15 @@ static ERL_NIF_TERM node_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     if (!enif_get_string(env, argv[0], node_name, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     
     as_node* node = as_node_get_by_name(as.cluster, node_name);
     if (! node) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "Failed to find server node.", ERL_NIF_UTF8);
 	} else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, as_node_get_address_string(node), ERL_NIF_UTF8);
         as_node_release(node);
     }
@@ -1976,13 +1938,13 @@ static ERL_NIF_TERM nif_node_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     if (!enif_get_string(env, argv[1], item, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
 
 	as_cluster* cluster = as.cluster;
     as_node* node = as_node_get_by_name(cluster, node_name);
     if (! node) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "Failed to find server node.", ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);   
 	}
@@ -1994,13 +1956,13 @@ static ERL_NIF_TERM nif_node_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
 
     as_status status = as_info_command_node(&err, node, (char*)item, policy->send_as_is, deadline, &info);
     if (status != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.in_doubt == true ? "unknown error" : err.message, ERL_NIF_UTF8);
     } else if (info == NULL) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "no data", ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, &info[0], ERL_NIF_UTF8);
         free(info);
     }
@@ -2016,19 +1978,19 @@ static ERL_NIF_TERM nif_help(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     if (!enif_get_string(env, argv[0], item, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     char * info = NULL;
     as_error err;
 
     if (aerospike_info_any(&as, &err, NULL, item, &info) != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.in_doubt == true ? "unknown error" : err.message, ERL_NIF_UTF8);
     } else if (info == NULL) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "no data", ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, info, ERL_NIF_UTF8);
         free(info);
     }
@@ -2050,14 +2012,14 @@ static ERL_NIF_TERM nif_host_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     if (!enif_get_string(env, argv[2], item, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     as_error err;
     as_address_iterator iter;
 
 	as_status status = as_lookup_host(&iter, &err, hostname, port);	
 	if (status != AEROSPIKE_OK) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, err.in_doubt == true ? "unknown error" : err.message, ERL_NIF_UTF8);
         return enif_make_tuple2(env, rc, msg);   
 	}
@@ -2086,10 +2048,10 @@ static ERL_NIF_TERM nif_host_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
 	as_lookup_end(&iter);
 
     if (info == NULL) {
-        rc = erl_error;
+        rc = atom_error;
         msg = enif_make_string(env, "no data", ERL_NIF_UTF8);
     } else {
-        rc = erl_ok;
+        rc = atom_ok;
         msg = enif_make_string(env, &info[0], ERL_NIF_UTF8);
         free(info);
     }
@@ -2124,9 +2086,8 @@ static ERL_NIF_TERM bar_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"as_init", 0, as_init},
     NIF_FUN("connect", 2, connect),
-    NIF_FUN("check_connection", 0, check_connection),
+    NIF_FUN("is_connected", 0, is_connected_check),
     NIF_FUN("nif_host_add", 2, host_add),
     NIF_FUN("host_clear", 0, host_clear),
     NIF_FUN("nif_host_list", 0, host_list),
@@ -2158,4 +2119,4 @@ static ErlNifFunc nif_funcs[] = {
     {"bar", 1, bar_nif}
 };
 
-ERL_NIF_INIT(aspike_nif, nif_funcs, NULL, NULL, NULL, NULL)
+ERL_NIF_INIT(aspike_nif, nif_funcs, load, NULL, NULL, NULL)
