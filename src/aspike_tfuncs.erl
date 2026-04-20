@@ -16,7 +16,6 @@ init(Password) ->
     application:set_env(aspike_port, user, User),
     application:set_env(aspike_port, psw, Password),
 
-    aspike_nif:as_init(),
     aspike_nif:host_add(),
     aspike_nif:connect().
 

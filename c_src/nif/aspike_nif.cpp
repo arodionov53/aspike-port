@@ -52,32 +52,18 @@
 // ----------------------------------------------------------------------------
 
 static aerospike as;
-static bool is_aerospike_initialised = false;
-static bool is_connected = false;
+static bool is_connected_flag = false;
 static ERL_NIF_TERM erl_error;
 static ERL_NIF_TERM erl_ok;
 
 // ----------------------------------------------------------------------------
 
-#define CHECK_AEROSPIKE_INIT \
-    if (!is_aerospike_initialised) {\
-        return enif_make_tuple2(env,\
-            enif_make_atom(env, "error"),\
-            enif_make_string(env, "aerospike not initialised", ERL_NIF_UTF8));\
-    }
-
-#define CHECK_IS_CONNECTED \
-    if (!is_connected) {\
+#define CHECK_IF_CONNECTED \
+    if (!is_connected_flag) {\
         return enif_make_tuple2(env,\
             enif_make_atom(env, "error"),\
             enif_make_string(env, "not connected", ERL_NIF_UTF8));\
     }
-
-#define CHECK_INIT CHECK_AEROSPIKE_INIT
-
-#define CHECK_ALL\
-    CHECK_INIT\
-    CHECK_IS_CONNECTED
 
 // ----------------------------------------------------------------------------
 
@@ -96,23 +82,14 @@ static ERL_NIF_TERM erl_ok;
 
 static ERL_NIF_TERM as_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    if (!is_aerospike_initialised) {
-        as_config config;
-        as_config_init(&config);
+    as_config config;
+    as_config_init(&config);
 
-        // enable constant auto-connection to the cluster no matter what.
-        // as a side-effect, the aerospike_connect() function will report
-        // "connected" even despite a fact the aerospike cluster might be down
-        // currently.
-        config.fail_if_not_connected = false;
-        
-        aerospike_init(&as, &config);
-        is_aerospike_initialised = true;
-    }
+    aerospike_init(&as, &config);
     erl_error = enif_make_atom(env, "error");
     erl_ok = enif_make_atom(env, "ok");
-    ERL_NIF_TERM msg = enif_make_string(env, "initialised", ERL_NIF_UTF8);
-    return enif_make_tuple2(env, erl_ok, msg);
+
+    return erl_ok;
 }
 
 static ERL_NIF_TERM host_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -125,7 +102,6 @@ static ERL_NIF_TERM host_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     if (!enif_get_int(env, argv[1], &port)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_INIT
 
     ERL_NIF_TERM rc, msg;
 
@@ -142,7 +118,6 @@ static ERL_NIF_TERM host_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 
 static ERL_NIF_TERM host_clear(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_INIT
     as_config_clear_hosts(&as.config);
     ERL_NIF_TERM rc = erl_ok;
     ERL_NIF_TERM msg = enif_make_string(env, "hosts list was cleared", ERL_NIF_UTF8);
@@ -151,7 +126,6 @@ static ERL_NIF_TERM host_clear(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
 
 static ERL_NIF_TERM host_list(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_INIT
     as_config  *config = &as.config;   
     as_vector  *hosts = config->hosts;
     uint32_t size = (hosts == NULL) ? 0 : hosts->size;
@@ -174,15 +148,9 @@ static ERL_NIF_TERM host_list(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
 // -spec connect(User :: string(), Password :: string()) ->
 //     {ok, atom()} |
 //     {error, string()}.
-//
 // Connects to Aerospike cluster with authentication.
-// Unlike basic aerospike_connect(), this function verifies that the cluster
-// has active, responding servers using aerospike_cluster_is_connected().
-//
 // Returns:
-//   {ok, connected} - Successfully connected with active servers available
-//   {ok, no_active_servers_found} - In a cluster connected state but no active
-//          aerospike servers are found, thus, the cluster is empty.
+//   {ok, connected} - Successfully connected to aerospike cluster
 //   {error, ErrorMessage} - Connection failed with error description
 static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -195,7 +163,6 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_string(env, argv[1], password, AS_PASSWORD_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_AEROSPIKE_INIT
 
     as_config_set_user(&as.config, user, password);
 
@@ -203,48 +170,36 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     ERL_NIF_TERM response;
     as_status rc = aerospike_connect(&as, &err);
     if (rc != AEROSPIKE_OK) {
-        is_connected = false;
+        is_connected_flag = false;
         ERL_NIF_TERM error_msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
         
         response = enif_make_tuple2(env, erl_error, error_msg);
     } else {
-        is_connected = true;
-        // Check if we're actually connected to live servers.
-        // aerospike_connect() returns true with 'fail_if_not_connected' flag set to false
-        // even if there are no live aerospike servers to be connected to, so aerospike_connect()
-        // is useless to tell us if we are connected. On the other hand, the function
-        // aerospike_cluster_is_connected() returns true if we are connected to the cluster.
-        ERL_NIF_TERM status;
-        if (aerospike_cluster_is_connected(&as)) {
-            status = enif_make_atom(env, "connected");
-        } else {
-            status = enif_make_atom(env, "no_active_servers_found");
-        }
-        response = enif_make_tuple2(env, erl_ok, status);
+        is_connected_flag = true;
+        response = enif_make_tuple2(env, erl_ok, enif_make_atom(env, "connected"));
     }
 
     return response;
 }
 
-// -spec check_connection() -> atom().
+// -spec is_connected_check() -> false | true.
 // Provides connection status to Aerospike cluster.
 // Returns one of the atom:
-// disconnected - The c-clibrary library is not connected to the cluster NOR
-//      it tries to get connected to the cluster.
-// no_active_servers_found - The c-clibrary library is not connected to the
-//      cluster BUT it tries to get connected to the cluster.
-// connected - Successfully connected to the cluster.
-static ERL_NIF_TERM check_connection(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+// false - not connected to the cluster OR we lost connections to all cluster nodes.
+// true - successfully connected to the cluster or at least to one of the cluster node.
+static ERL_NIF_TERM is_connected_check(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    if (!is_aerospike_initialised) {
-        return enif_make_atom(env, "disconnected");
+    if (!is_connected_flag) {
+        return enif_make_atom(env, "false");
     }
 
     if (!aerospike_cluster_is_connected(&as)) {
-        return enif_make_atom(env, "no_active_servers_found");
+        // aerospike_cluster_is_connected() returns false if we lost connection to
+        // all cluster nodes
+        return enif_make_atom(env, "false");
     }
 
-    return enif_make_atom(env, "connected");
+    return enif_make_atom(env, "true");
 }
 
 static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -285,7 +240,7 @@ static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
         return enif_make_tuple2(env, rc, msg);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
 	as_error err;
     as_key key;
@@ -383,7 +338,7 @@ static ERL_NIF_TERM cdt_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_tuple2(env, rc, msg);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
 	as_error err;
     as_key key;
@@ -584,7 +539,7 @@ static ERL_NIF_TERM binary_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
         return enif_make_tuple2(env, rc, msg);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
 	as_error err;
     as_key key;
@@ -705,7 +660,7 @@ static ERL_NIF_TERM key_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_is_list(env, list) || !enif_get_list_length(env, list, &length)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
                                         // enif_get_list_length(env, *val, &len);
     ERL_NIF_TERM rc, msg;
     if (length == 0) {
@@ -777,7 +732,7 @@ static ERL_NIF_TERM key_inc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_is_list(env, list) || !enif_get_list_length(env, list, &length)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
     if (length == 0) {
@@ -860,7 +815,7 @@ static ERL_NIF_TERM a_key_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     if (!enif_get_long(env, argv[5], &n)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -921,7 +876,7 @@ static ERL_NIF_TERM key_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1105,7 +1060,7 @@ static ERL_NIF_TERM key_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1247,7 +1202,7 @@ static ERL_NIF_TERM cdt_expire(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
         return enif_make_badarg(env);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1337,7 +1292,7 @@ static ERL_NIF_TERM cdt_delete_by_keys_batch(ErlNifEnv* env, int argc, const ERL
 	    return enif_make_badarg(env);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     std::vector<std::string> bin_str_list(length);
     std::vector<std::vector<std::string>> skeys_lst; 
@@ -1464,7 +1419,7 @@ static ERL_NIF_TERM cdt_delete_by_keys(ErlNifEnv* env, int argc, const ERL_NIF_T
 	    return enif_make_badarg(env);
     }
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     
     as_arraylist remove_list;
 	as_arraylist_init(&remove_list, length, length);
@@ -1549,7 +1504,7 @@ static ERL_NIF_TERM cdt_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     enif_get_long(env, policy[2], &socket_timeout);
     enif_get_long(env, policy[3], &total_timeout);
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1611,7 +1566,7 @@ static ERL_NIF_TERM binary_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     }
     aspk_key.assign((const char*) bin_key.data, bin_key.size);
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1669,7 +1624,7 @@ static ERL_NIF_TERM segment_tag_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM
     }
     aspk_columns.assign((const char*) bin_columns.data, bin_columns.size);
 
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, code, msg;
     as_error err;
@@ -1770,7 +1725,7 @@ static ERL_NIF_TERM key_select(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     if (!enif_is_list(env, list) || !enif_get_list_length(env, list, &length)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 
@@ -1833,7 +1788,7 @@ static ERL_NIF_TERM key_generation(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
 	as_error err;
@@ -1879,7 +1834,7 @@ static ERL_NIF_TERM key_exists(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     if (!enif_get_string(env, argv[2], key_str, MAX_KEY_STR_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
 
     ERL_NIF_TERM rc, msg;
     as_error err;
@@ -1904,7 +1859,7 @@ static ERL_NIF_TERM key_exists(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
 
 static ERL_NIF_TERM node_random(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     as_node* node = as_node_get_random(as.cluster);
     if (! node) {
@@ -1921,7 +1876,7 @@ static ERL_NIF_TERM node_random(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
 
 static ERL_NIF_TERM node_names(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc;
 	as_nodes* nodes = as_nodes_reserve(as.cluster);
     uint32_t n_nodes = (nodes == NULL) ? 0 : nodes->size;
@@ -1950,7 +1905,7 @@ static ERL_NIF_TERM node_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     if (!enif_get_string(env, argv[0], node_name, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     
     as_node* node = as_node_get_by_name(as.cluster, node_name);
@@ -1976,7 +1931,7 @@ static ERL_NIF_TERM nif_node_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     if (!enif_get_string(env, argv[1], item, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
 
 	as_cluster* cluster = as.cluster;
@@ -2016,7 +1971,7 @@ static ERL_NIF_TERM nif_help(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     if (!enif_get_string(env, argv[0], item, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     char * info = NULL;
     as_error err;
@@ -2050,7 +2005,7 @@ static ERL_NIF_TERM nif_host_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     if (!enif_get_string(env, argv[2], item, AS_USER_SIZE, ERL_NIF_UTF8)) {
 	    return enif_make_badarg(env);
     }
-    CHECK_ALL
+    CHECK_IF_CONNECTED
     ERL_NIF_TERM rc, msg;
     as_error err;
     as_address_iterator iter;
@@ -2126,7 +2081,7 @@ static ERL_NIF_TERM bar_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 static ErlNifFunc nif_funcs[] = {
     {"as_init", 0, as_init},
     NIF_FUN("connect", 2, connect),
-    NIF_FUN("check_connection", 0, check_connection),
+    NIF_FUN("is_connected", 0, is_connected_check),
     NIF_FUN("nif_host_add", 2, host_add),
     NIF_FUN("host_clear", 0, host_clear),
     NIF_FUN("nif_host_list", 0, host_list),

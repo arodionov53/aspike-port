@@ -5,7 +5,6 @@
 -include("../include/defines.hrl").
 
 -export([
-    as_init/0,
     host_add/0,
     host_add/1,
     host_add/2,
@@ -15,7 +14,7 @@
     host_list/0,
     connect/0,
     connect/2,
-    check_connection/0,
+    is_connected/0,
     key_exists/0,
     key_exists/1,
     key_exists/3,
@@ -74,7 +73,7 @@
     host_clear/0,
     nif_host_list/0,
     connect/2,
-    check_connection/0,
+    is_connected/0,
     key_exists/3,
     key_inc/4,
     key_get/3,
@@ -111,8 +110,10 @@
 
 % -------------------------------------------------------------------------------
 
+-spec init() -> ok.
 init() ->
-    erlang:load_nif(utils:find_lib(?LIBNAME), 0).
+    erlang:load_nif(utils:find_lib(?LIBNAME), 0),
+    as_init().
 
 not_loaded(Line) ->
     erlang:nif_error({not_loaded, [{module, ?MODULE}, {line, Line}]}).
@@ -163,16 +164,17 @@ host_list() ->
 nif_host_list() ->
     not_loaded(?LINE).
 
+-spec connect() -> {ok, connected} | {error, string()}.
 connect() ->
     connect(?DEFAULT_USER, ?DEFAULT_PSW).
 
 % @doc Create connection using User and PWd credential
--spec connect(string(), string()) -> {ok, atom()} | {error, string()}.
+-spec connect(string(), string()) -> {ok, connected} | {error, string()}.
 connect(_, _) ->
     not_loaded(?LINE).
 
--spec check_connection() -> atom().
-check_connection() ->
+-spec is_connected() -> false | true.
+is_connected() ->
     not_loaded(?LINE).
 
 key_exists() ->
