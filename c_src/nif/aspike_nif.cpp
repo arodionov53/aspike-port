@@ -924,6 +924,12 @@ ERL_NIF_TERM get_binaryb_asval(ErlNifEnv* env, const as_val * val) {
 }
 
 static ERL_NIF_TERM format_value_out(ErlNifEnv* env, as_val_t type, as_bin_value *val) {
+    // Check if "undefined" atom exists, create it if not
+    ERL_NIF_TERM undefined_atom;
+    if (!enif_make_existing_atom(env, "undefined", &undefined_atom, ERL_NIF_UTF8)) {
+        undefined_atom = enif_make_atom(env, "undefined");
+    }
+
     switch(type) {
         case AS_INTEGER:
             return enif_make_int64(env, val->integer.value);
@@ -977,7 +983,7 @@ static ERL_NIF_TERM format_value_out(ErlNifEnv* env, as_val_t type, as_bin_value
                 const as_orderedmap *vmap = (const as_orderedmap*)as_map_fromval(as_pair_2(apr));
                 as_orderedmap_iterator iti_int;
                 as_orderedmap_iterator_init(&iti_int, vmap);
-                ERL_NIF_TERM vnt = enif_make_atom(env, "undefined");
+                ERL_NIF_TERM vnt = undefined_atom;
                 ERL_NIF_TERM ttlsm = enif_make_int64(env, 0);
                 ERL_NIF_TERM writetime = enif_make_int64(env, 0);
                 while ( as_orderedmap_iterator_has_next(&iti_int) ) {
