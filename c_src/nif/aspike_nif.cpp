@@ -183,7 +183,13 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         response = enif_make_tuple2(env, erl_error, error_msg);
     } else {
         is_connected_flag = true;
-        response = enif_make_tuple2(env, erl_ok, enif_make_atom(env, "connected"));
+
+        ERL_NIF_TERM connected_atom;
+        if (!enif_make_existing_atom(env, "connected", &connected_atom, ERL_NIF_UTF8)) {
+            connected_atom = enif_make_atom(env, "connected");
+        }
+
+        response = enif_make_tuple2(env, erl_ok, connected_atom);
     }
 
     return response;
