@@ -81,8 +81,7 @@ static ERL_NIF_TERM erl_false;
     }
 
 // ----------------------------------------------------------------------------
-
-static ERL_NIF_TERM as_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
     as_config config;
     as_config_init(&config);
@@ -97,7 +96,7 @@ static ERL_NIF_TERM as_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     erl_true = enif_make_atom(env, "true");
     erl_false = enif_make_atom(env, "false");
 
-    return erl_ok;
+    return 0;
 }
 
 static ERL_NIF_TERM host_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -2084,7 +2083,6 @@ static ERL_NIF_TERM bar_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"as_init", 0, as_init},
     NIF_FUN("connect", 2, connect),
     NIF_FUN("is_connected", 0, is_connected_check),
     NIF_FUN("nif_host_add", 2, host_add),
@@ -2118,4 +2116,4 @@ static ErlNifFunc nif_funcs[] = {
     {"bar", 1, bar_nif}
 };
 
-ERL_NIF_INIT(aspike_nif, nif_funcs, NULL, NULL, NULL, NULL)
+ERL_NIF_INIT(aspike_nif, nif_funcs, load, NULL, NULL, NULL)

@@ -68,7 +68,6 @@
 ]).
 
 -nifs([
-    as_init/0,
     nif_host_add/2,
     host_clear/0,
     nif_host_list/0,
@@ -112,14 +111,10 @@
 
 -spec init() -> ok.
 init() ->
-    erlang:load_nif(utils:find_lib(?LIBNAME), 0),
-    as_init().
+    erlang:load_nif(utils:find_lib(?LIBNAME), 0).
 
 not_loaded(Line) ->
     erlang:nif_error({not_loaded, [{module, ?MODULE}, {line, Line}]}).
-
-as_init() ->
-    not_loaded(?LINE).
 
 -spec host_add() -> {ok, string()} | {error, string()}.
 host_add() ->
@@ -390,7 +385,6 @@ nif_host_info(_, _, _) ->
 % @doc Shortcut for testing
 -spec b() -> ok.
 b() ->
-    as_init(),
     host_add(),
     connect(),
     ok.
