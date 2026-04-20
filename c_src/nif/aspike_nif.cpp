@@ -97,6 +97,8 @@ static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
     atom_ok = enif_make_atom(env, "ok");
     atom_true = enif_make_atom(env, "true");
     atom_false = enif_make_atom(env, "false");
+    atom_undefined = enif_make_atom(env, "undefined");
+    atom_connected = enif_make_atom(env, "connected");
 
     return 0;
 }
