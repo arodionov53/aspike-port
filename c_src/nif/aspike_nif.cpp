@@ -55,13 +55,15 @@ static aerospike as;
 static bool is_connected_flag = false;
 static ERL_NIF_TERM erl_error;
 static ERL_NIF_TERM erl_ok;
+static ERL_NIF_TERM erl_true;
+static ERL_NIF_TERM erl_false;
 
 // ----------------------------------------------------------------------------
 
 #define CHECK_IF_CONNECTED \
     if (!is_connected_flag) {\
         return enif_make_tuple2(env,\
-            enif_make_atom(env, "error"),\
+            erl_error,\
             enif_make_string(env, "not connected", ERL_NIF_UTF8));\
     }
 
@@ -86,8 +88,14 @@ static ERL_NIF_TERM as_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     as_config_init(&config);
 
     aerospike_init(&as, &config);
+
+    // the following atoms are definitely present in the VM but to keep code short and
+    // simple we call enif_make_atom() instead of enif_make_existing_atom(). Plus, who
+    // knows, maybe atoms can be missing, so it's a safe way to do.
     erl_error = enif_make_atom(env, "error");
     erl_ok = enif_make_atom(env, "ok");
+    erl_true = enif_make_atom(env, "true");
+    erl_false = enif_make_atom(env, "false");
 
     return erl_ok;
 }
@@ -190,16 +198,16 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 static ERL_NIF_TERM is_connected_check(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     if (!is_connected_flag) {
-        return enif_make_atom(env, "false");
+        return erl_false;
     }
 
     if (!aerospike_cluster_is_connected(&as)) {
         // aerospike_cluster_is_connected() returns false if we lost connection to
         // all cluster nodes
-        return enif_make_atom(env, "false");
+        return erl_false;
     }
 
-    return enif_make_atom(env, "true");
+    return erl_true;
 }
 
 static ERL_NIF_TERM binary_remove(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -1836,7 +1844,7 @@ static ERL_NIF_TERM key_exists(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     }
     CHECK_IF_CONNECTED
 
-    ERL_NIF_TERM rc, msg;
+    ERL_NIF_TERM msg;
     as_error err;
     as_key key;
     as_record* p_rec = NULL;    
@@ -1845,16 +1853,13 @@ static ERL_NIF_TERM key_exists(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     int as_rc = aerospike_key_exists(&as, &err, NULL, &key, &p_rec);
 
     if (as_rc != AEROSPIKE_OK) {
-        rc = erl_error;
         msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
-        return enif_make_tuple2(env, rc, msg);
+        return enif_make_tuple2(env, erl_error, msg);
     }
-    rc = erl_ok;
-    static ERL_NIF_TERM tr = enif_make_atom(env, "true");
     if (p_rec != NULL) {
         as_record_destroy(p_rec);
     }
-    return enif_make_tuple2(env, rc, tr);
+    return enif_make_tuple2(env, erl_ok, erl_true);
 }
 
 static ERL_NIF_TERM node_random(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
