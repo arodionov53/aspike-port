@@ -1,46 +1,221 @@
--module(aspike_nif_perf).
+-module(aspike_nif_test).
 
 -export([
-   sp_insert/8,
-   pool_insert/8,
-   sp_insert/5,
-   sp_insert/2,
-   sp_insert/1,
-   mp_insert/3,
-   sp_read/2,
-   sp_read/8,
-   mp_reads/3,
-   mp_port_insert/3,
+    init/0,
+    connection_test/0,
+    quick_test/0,
+    stress_test/0,
+    memory_leak_test/0,
+    get_api_mode/1,
 
-   rand_read/2,
-   rand_read/8,
-   mp_rand_reads/3,
-   infinite_test/4,
+    sp_insert/9,
+    sp_insert/8,
+    pool_insert/8,
+    sp_insert/5,
+    sp_insert/2,
+    sp_insert/1,
+    mp_insert/3,
+    sp_read/2,
+    sp_read/8,
+    mp_reads/3,
+    mp_port_insert/3,
 
-   test_insertion/5,
-   test_reading/3,
-   dump_stats/0,
+    rand_read/2,
+    rand_read/8,
+    mp_rand_reads/3,
+    infinite_test/4,
 
-   cdt_insert_test/5,
-   cdt_insert_test_mk/5,
-   cdt_del_test/5,
-   cdt_del_batch_test/5,
-   cdt_get_test/4,
-   pool_cdt_insert/1,
-   pool_cdt_read/1
+    test_insertion/5,
+    test_reading/3,
+    dump_stats/0,
+
+    cdt_insert_test/5,
+    cdt_insert_test_mk/5,
+    cdt_del_test/5,
+    cdt_del_batch_test/5,
+    cdt_get_test/4,
+    pool_cdt_insert/1,
+    pool_cdt_read/1,
+
+    % Shared Aerospike operation functions
+    cdt_put/5,
+    cdt_put/6,
+    cdt_get/3,
+    cdt_get/4,
+    segment_tag_get/4,
+    cdt_delete_by_keys/5,
+    cdt_delete_by_keys_batch/4
 ]).
 
-
+-define(INIT_FLAG, aspike_nif_test_init_done).
 -define(FCAP_BIN, <<"fcap_map">>).
+-define(ASPIKE_DEFAULT_POLICY, {3, 250, 30000, 1000}).
 
+-define(SYNC_MIN_CONNECTION, 50).
+-define(SYNC_MAX_CONNECTION, 100).
+-define(ASYNC_MIN_CONNECTION, 50).
+-define(ASYNC_MAX_CONNECTION, 300).
+-define(EVENT_LOOPS_AMOUNT, 1).
 
+%get_api_mode(_Operation) -> sync.
+get_api_mode(_Operation) -> async.
+
+init() ->
+    case persistent_term:get(?INIT_FLAG, false) of
+        false ->
+            application:set_env(aspike_port, host, "127.0.0.1"),
+            application:set_env(aspike_port, port, 3000),
+            application:set_env(aspike_port, user, ""),
+            application:set_env(aspike_port, psw, ""),
+            aspike_nif:set_connections_per_node(
+                ?SYNC_MIN_CONNECTION,
+                ?SYNC_MAX_CONNECTION,
+                ?ASYNC_MIN_CONNECTION,
+                ?ASYNC_MAX_CONNECTION
+            ),
+            aspike_nif:set_event_loops_amount(?EVENT_LOOPS_AMOUNT),
+            aspike_nif:host_add(),
+            ConnectionResponse = aspike_nif:connect(),
+            io:format("aspike_nif:connect: ~p~n", [ConnectionResponse]),
+            case ConnectionResponse of
+                {ok, <<"connected">>} ->
+                    persistent_term:put(?INIT_FLAG, true);
+                _ ->
+                    ok
+            end;
+        _ -> ok
+    end.
+
+connection_test() ->
+    Namespace = <<"test">>,
+    SetName = <<"rtb_setname">>,
+    PK1 = <<"user_1">>,
+    Bins1 = [
+        {<<"profile">>, [<<"first_name">>, <<0, 1, 0, 2, 1>>, 123, <<"last_name">>, <<0, 1, 0, 2, 2>>, 456]},
+        {<<"settings">>, [<<"theme">>, <<0, 1, 0, 2, 3>>, 345, <<"reload">>, <<0, 1, 0, 2, 4>>, 678]}
+    ],
+    InsertRes = cdt_put(Namespace, SetName, PK1, Bins1, 300),
+    case InsertRes of
+        {ok, "put"} -> ok;
+        {ok, <<"put">>} -> ok;
+        {error, InsertError} ->
+            io:format("ERROR: cdt_put failed with: ~p~n", [InsertError]);
+        InsertOther ->
+            io:format("ERROR: cdt_put returned unexpected result: ~p~n", [InsertOther])
+    end.
+
+quick_test() ->
+    aspike_nif_quick_test:run().
+
+stress_test() ->
+    aspike_nif_stress_test:run().
+
+memory_leak_test() ->
+    aspike_nif_memory_leak_test:run().
+
+cdt_put(Namespace, Set, RecordKeyName, BinList, TTL) ->
+    cdt_put(Namespace, Set, RecordKeyName, BinList, TTL, ?ASPIKE_DEFAULT_POLICY).
+
+cdt_put(Namespace, Set, RecordKeyName, BinList, TTL, Policy) ->
+    case get_api_mode(cdt_put) of
+        sync ->
+            aspike_nif:cdt_put_sync(Namespace, Set, RecordKeyName, BinList, TTL, Policy);
+        async ->
+            AsyncCmd = fun(Ref) ->
+                aspike_nif:cdt_put_async(Ref, Namespace, Set, RecordKeyName, BinList, TTL, Policy)
+            end,
+            call_aerospike_async_nif(AsyncCmd)
+    end.
+
+cdt_get(Namespace, Set, RecordKeyName) ->
+    cdt_get(Namespace, Set, RecordKeyName, ?ASPIKE_DEFAULT_POLICY).
+
+cdt_get(Namespace, Set, RecordKeyName, Policy) ->
+    case get_api_mode(cdt_get) of
+        sync ->
+            aspike_nif:cdt_get_sync(Namespace, Set, RecordKeyName, Policy);
+        async ->
+            AsyncCmd = fun(Ref) -> aspike_nif:cdt_get_async(Ref, Namespace, Set, RecordKeyName, Policy) end,
+            call_aerospike_async_nif(AsyncCmd)
+    end.
+
+segment_tag_get(Namespace, Set, RecordKeyName, BinName) ->
+    case get_api_mode(segment_tag_get) of
+        sync ->
+            aspike_nif:segment_tag_get_sync(Namespace, Set, RecordKeyName, BinName);
+        async ->
+            AsyncCmd = fun(Ref) -> aspike_nif:segment_tag_get_async(Ref, Namespace, Set, RecordKeyName, BinName) end,
+            call_aerospike_async_nif(AsyncCmd)
+    end.
+
+cdt_delete_by_keys(Namespace, Set, RecordKeyName, BinName, SubkeysList) ->
+    case get_api_mode(cdt_delete_by_keys) of
+        sync ->
+            aspike_nif:cdt_delete_by_keys_sync(Namespace, Set, RecordKeyName, BinName, SubkeysList);
+        async ->
+            AsyncCmd = fun(Ref) ->
+                aspike_nif:cdt_delete_by_keys_async(Ref, Namespace, Set, RecordKeyName, BinName, SubkeysList)
+                       end,
+            call_aerospike_async_nif(AsyncCmd)
+    end.
+
+cdt_delete_by_keys_batch(Namespace, Set, BinName, KeysToRemove) ->
+    case get_api_mode(cdt_delete_by_keys) of
+        sync ->
+            aspike_nif:cdt_delete_by_keys_batch_sync(Namespace, Set, BinName, KeysToRemove);
+        async ->
+            AsyncCmd = fun(Ref) ->
+                aspike_nif:cdt_delete_by_keys_batch_async(Ref, Namespace, Set, BinName, KeysToRemove)
+                       end,
+            call_aerospike_async_nif(AsyncCmd)
+    end.
+
+call_aerospike_async_nif(AsyncCmd) ->
+    % Generate a unique reference for this async operation
+    Ref = make_ref(),
+
+    % we define time to wait (TTW) much higher compare to prod values
+    % because dev machines are not so powerful. Value in milliseconds.
+    TTW = 1000,
+
+    case AsyncCmd(Ref) of
+        {ok, in_progress} ->
+            receive_with_ref_filter(Ref, TTW);
+        {ok, Response} ->
+            {ok, Response};
+        {error, {_NifErrorCode, _AspikeErrorCode, ErrorMessage}} ->
+            {error, ErrorMessage}
+    end.
+
+% Helper function to receive messages with reference filtering
+receive_with_ref_filter(ExpectedRef, TTW) ->
+    receive
+        {ok, ReceivedRef, Response} when ReceivedRef =:= ExpectedRef ->
+            {ok, Response};
+        {error, ReceivedRef, {_NifErrorCode, _AspikeErrorCode, ErrorMessage}} when ReceivedRef =:= ExpectedRef ->
+            {error, ErrorMessage};
+        % Handle messages with wrong references (stale messages)
+        {ok, WrongRef, _} when WrongRef =/= ExpectedRef ->
+            % This is a stale message from a previous operation, ignore it
+            io:format("Received wrong REF (~p) on OK response. I was expecting ~p~n", [WrongRef, ExpectedRef]),
+            receive_with_ref_filter(ExpectedRef, TTW);
+        {error, WrongRef, {_, _, _}} when WrongRef =/= ExpectedRef ->
+            io:format("Received wrong REF (~p) on Error response. I was expecting ~p~n", [WrongRef, ExpectedRef]),
+            % This is a stale error message from a previous operation, ignore it
+            receive_with_ref_filter(ExpectedRef, TTW);
+        _Other ->
+            % Unknown message format, ignore and continue
+            receive_with_ref_filter(ExpectedRef, TTW)
+    after TTW ->
+        {error, <<"timeout waiting for the response from aerospike">>}
+    end.
 
 cdt_del_test(0, _, _, _, _) -> ok;
 cdt_del_test(N, NKeys, NSKeys, TTL, Timeout) ->
     Key = erlang:iolist_to_binary([<<"Key_Key_Key_Key.namespace.1111111">>, integer_to_binary(rand:uniform(NKeys))]),
     Subkey1 = erlang:iolist_to_binary([<<"Key_Key_Key_Key.subkey">>, integer_to_binary(rand:uniform(NSKeys))]),
     Subkey2 = erlang:iolist_to_binary([<<"Key_Key_Key_Key.subkey">>, integer_to_binary(rand:uniform(NSKeys))]),
-    aspike_nif:cdt_delete_by_keys(
+    cdt_delete_by_keys(
         <<"test">>, <<"gateway_fcap_test1">>, Key, ?FCAP_BIN, [Subkey1, Subkey2]
     ),
     case Timeout of
@@ -57,7 +232,7 @@ cdt_del_batch_test(N, NKeys, NSKeys, TTL, Timeout) ->
     Subkey2 = erlang:iolist_to_binary([<<"Key_Key_Key_Key.subkey">>, integer_to_binary(rand:uniform(NSKeys))]),
     Subkey3 = erlang:iolist_to_binary([<<"Key_Key_Key_Key.subkey">>, integer_to_binary(rand:uniform(NSKeys))]),
     Subkey4 = erlang:iolist_to_binary([<<"Key_Key_Key_Key.subkey">>, integer_to_binary(rand:uniform(NSKeys))]),
-    aspike_nif:cdt_delete_by_keys_batch(
+    cdt_delete_by_keys_batch(
         <<"test">>, <<"gateway_fcap_test1">>, ?FCAP_BIN, [{Key1, [Subkey1, Subkey2]}, {Key2, [Subkey3, Subkey4]}]
     ),
     case Timeout of
@@ -69,7 +244,7 @@ cdt_del_batch_test(N, NKeys, NSKeys, TTL, Timeout) ->
 cdt_get_test(0, _, _, _) -> ok;
 cdt_get_test(N, NKeys, TTL, Timeout) ->
     Key = erlang:iolist_to_binary([<<"Key_Key_Key_Key.namespace.1111111">>, integer_to_binary(rand:uniform(NKeys))]),
-    aspike_nif:cdt_get(
+    cdt_get(
         <<"test">>, <<"gateway_fcap_test1">>, Key, {2, 1000, 30000, 1000}
     ),
     case Timeout of
@@ -86,7 +261,7 @@ cdt_insert_test(N, NKeys, NSKeys, TTL, Timeout) ->
     Bins = [
         {?FCAP_BIN, [Subkey, Value, erlang:system_time(seconds) + TTL]}
     ],
-    aspike_nif:cdt_put(
+    cdt_put(
         <<"test">>,
         <<"gateway_fcap_test1">>,
         Key,
@@ -117,7 +292,7 @@ cdt_insert_test_mk(N, NKeys, NSKeys, TTL, Timeout) ->
             Subkey3, Value3, erlang:system_time(seconds) + TTL
         ]}
     ],
-    aspike_nif:cdt_put(
+    cdt_put(
         <<"test">>,
         <<"gateway_fcap_test1">>,
         Key,
@@ -134,11 +309,11 @@ cdt_insert_test_mk(N, NKeys, NSKeys, TTL, Timeout) ->
 
 % single process insert
 sp_insert(N) ->
-   sp_insert(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, 3600, 10).
+   sp_insert(<<"test">>, <<"rtb-gateway-fcap-users">>, N, 3600, 10).
 
 sp_insert(N, Sleep) ->
    T1 = erlang:system_time(microsecond),
-   sp_insert(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, 3600, Sleep),
+   sp_insert(<<"test">>, <<"rtb-gateway-fcap-users">>, N, 3600, Sleep),
    T = erlang:system_time(microsecond) - T1,
    Avg = (T - (Sleep * 1000)*N)/N,
    {T, Avg}.
@@ -147,22 +322,28 @@ sp_insert(Namespace, Set, N, TTL, Sleep) ->
 	sp_insert(Namespace, Set, N, TTL, Sleep, 1_000_000_000_000, 0, 0).
 
 sp_insert(_, _, 0, _, _, _, Oks, Errs) -> {Oks, Errs};
-sp_insert(Namespace, Set, N, TTL, Sleep, AddP, Oks, Errs) ->
-   case N rem 10000 of
-     0 -> io:format("write N: ~p ~n", [N]);
+
+sp_insert(Namespace, SetName, TimesToInsert, TTL, Sleep, AddP, Oks, Errs) ->
+    sp_insert(<<"sp_insert">>, Namespace, SetName, TimesToInsert, TTL, Sleep, AddP, Oks, Errs).
+
+sp_insert(_, _, _, 0, _, _, _, Oks, Errs) -> {Oks, Errs};
+
+sp_insert(ProcName, Namespace, SetName, TimesToInsert, TTL, Sleep, AddP, Oks, Errs) ->
+   case TimesToInsert rem 10000 of
+     0 -> io:format("~s: writes left to do: ~p ~n", [ProcName, TimesToInsert]);
      _ -> ok
    end,
-   Key = integer_to_binary(N + AddP),
+   Key = integer_to_binary(TimesToInsert + AddP),
    Bins = [
       {<<"column1">>, <<"fcap">>},
       {<<"column2">>, <<"campaign.164206.3684975">>},
       {<<"timestamps">>, <<0,0,0,0,0,0,0,2,0,0,0,0,101,231,111,33,0,0,0,0,101,231,64,10>>}
    ],
    T1 = erlang:system_time(microsecond),
-   {O1, E1} = case aspike_nif:binary_put(Namespace, Set, Key, Bins, TTL) of
+   {O1, E1} = case aspike_nif:binary_put(Namespace, SetName, Key, Bins, TTL) of
      {ok, _} -> {Oks+1, Errs};
      EE ->
-	io:format("Error ~p ~n", [EE]), 
+	io:format("~s: Error ~p ~n", [ProcName, EE]),
 	{Oks, Errs+1}
    end, 
    T = erlang:system_time(microsecond) - T1,
@@ -175,7 +356,7 @@ sp_insert(Namespace, Set, N, TTL, Sleep, AddP, Oks, Errs) ->
      0 -> ok;
      _ -> timer:sleep(rand:uniform(Sleep))
    end,
-   sp_insert(Namespace, Set, N-1, TTL, Sleep, AddP, O1, E1).
+   sp_insert(ProcName, Namespace, SetName, TimesToInsert - 1, TTL, Sleep, AddP, O1, E1).
 
 
 pool_insert(_, _, 0, _, _, _, Oks, Errs) -> {Oks, Errs};
@@ -201,15 +382,16 @@ pool_insert(Namespace, Set, N, TTL, Sleep, AddP, Oks, Errs) ->
    end,
    pool_insert(Namespace, Set, N-1, TTL, Sleep, AddP, O1, E1).
 
-mp_insert(NProc, N, Sleep) ->
-   lists:map(fun(E) -> 
-     spawn(fun() ->
-   	T1 = erlang:system_time(microsecond),
-	Ret = sp_insert(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, 3600, Sleep, 1_000_000_000_000 * E, 0, 0),
-        RR = (erlang:system_time(microsecond) - T1) div N,
-	io:format("Insert Process ~p ret: ~p rate: ~p ~n", [E, Ret, RR])
-     end)
-   end, lists:seq(1, NProc)).
+mp_insert(NProc, AmountOfInserts, Sleep) ->
+    lists:map(fun(ProcNumber) ->
+        spawn(fun() ->
+            T1 = erlang:system_time(microsecond),
+            StartValue = 1_000_000_000_000 * ProcNumber,
+            Ret = sp_insert(integer_to_list(ProcNumber), <<"test">>, <<"rtb-gateway-fcap-users">>, AmountOfInserts, 3600, Sleep, StartValue, 0, 0),
+            InsertTime = (erlang:system_time(microsecond) - T1) div AmountOfInserts,
+            io:format("Result from process ~p: return value: ~p, avg time for one insert : ~p µs ~n", [ProcNumber, Ret, InsertTime])
+        end)
+    end, lists:seq(1, NProc)).
 
 mp_port_insert(NProc, N, Sleep) ->
    pooler:start(),
@@ -224,7 +406,7 @@ mp_port_insert(NProc, N, Sleep) ->
    lists:map(fun(E) -> 
      spawn(fun() ->
    	T1 = erlang:system_time(microsecond),
-	Ret = pool_insert(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, 3600, Sleep, 1_000_000_000_000 * E, 0, 0),
+	Ret = pool_insert(<<"test">>, <<"rtb-gateway-fcap-users">>, N, 3600, Sleep, 1_000_000_000_000 * E, 0, 0),
         RR = (erlang:system_time(microsecond) - T1) div N,
 	io:format("Insert Process ~p ret: ~p rate: ~p ~n", [E, Ret, RR])
      end)
@@ -233,14 +415,14 @@ mp_port_insert(NProc, N, Sleep) ->
 mp_reads(NProc, N, Sleep) ->
    lists:map(fun(E) -> 
      spawn(fun() ->
-	Ret = sp_read(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000 * E, 0, 0, 0),
+	Ret = sp_read(<<"test">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000 * E, 0, 0, 0),
 	io:format("Read Process ~p ret: ~p ~n", [E, Ret])
      end)
    end, lists:seq(1, NProc)).
 
 sp_read(N, Sleep) ->
    T1 = erlang:system_time(microsecond),
-   Ret = sp_read(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000, 0, 0, 0),
+   Ret = sp_read(<<"test">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000, 0, 0, 0),
    T = erlang:system_time(microsecond) - T1,
    Avg = (T - (Sleep * 1000)*N)/N,
    {Ret, {T, Avg}}.
@@ -279,14 +461,14 @@ sp_read(Namespace, Set, N, Sleep, AddP, Oks, Nfs, Errs) ->
 mp_rand_reads(NProc, N, Sleep) ->
    lists:map(fun(E) -> 
      spawn(fun() ->
-	Ret = rand_read(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000, 0, 0, 0),
+	Ret = rand_read(<<"test">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000, 0, 0, 0),
 	io:format("Process ~p ret: ~p ~n", [E, Ret])
      end)
    end, lists:seq(1, NProc)).
 
 rand_read(N, Sleep) ->
    T1 = erlang:system_time(microsecond),
-   Ret = sp_read(<<"global-store">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000, 0, 0, 0),
+   Ret = sp_read(<<"test">>, <<"rtb-gateway-fcap-users">>, N, Sleep, 1_000_000_000_000, 0, 0, 0),
    T = erlang:system_time(microsecond) - T1,
    Avg = (T - (Sleep * 1000)*N)/N,
    {Ret, {T, Avg}}.
@@ -327,7 +509,7 @@ check_ret(Ret) ->
 infinite_test(NProc, Ttl, WSleep, _RSleep) ->
    lists:map(fun(E) -> 
      spawn(fun() ->
-	Ret = sp_insert(<<"global-store">>, <<"rtb-gateway-fcap-users">>, 999_999_999_999, Ttl, WSleep, 1_000_000_000_000 * E, 0, 0),
+	Ret = sp_insert(<<"test">>, <<"rtb-gateway-fcap-users">>, 999_999_999_999, Ttl, WSleep, 1_000_000_000_000 * E, 0, 0),
 	io:format("Insert Process ~p ret: ~p ~n", [E, Ret])
      end)
    end, lists:seq(1, NProc)).
@@ -342,7 +524,7 @@ test_insertion(N, Sleep, PrevLatency, Oks, Errs) ->
       {<<"column3">>, integer_to_binary(PrevLatency)},
       {<<"timestamps">>, <<0,0,0,0,0,0,0,2,0,0,0,0,101,231,111,33,0,0,0,0,101,231,64,10>>}
    ],
-   {O1, E1} = case aspike_nif:binary_put(<<"global-store">>, <<"rtb-gateway-fcap-users">>, Key, Bins, 600) of
+   {O1, E1} = case aspike_nif:binary_put(<<"test">>, <<"rtb-gateway-fcap-users">>, Key, Bins, 600) of
      {ok, _} -> {Oks+1, Errs};
      EE ->
 	io:format("Error ~p ~n", [EE]), 
@@ -370,7 +552,7 @@ test_reading(0, _, XDRLat) ->
 test_reading(N, Sleep, XDRLat) ->
    Key = integer_to_binary(N),
    T1 = erlang:system_time(microsecond),
-   {Status, XDRLatRet} = case aspike_nif:binary_get(<<"global-store">>, <<"rtb-gateway-fcap-users">>, Key) of
+   {Status, XDRLatRet} = case aspike_nif:binary_get(<<"test">>, <<"rtb-gateway-fcap-users">>, Key) of
       {ok, Ret} ->
           TW1 = binary_to_integer(proplists:get_value(<<"column2">>, Ret, <<"0">>)),
           L1  = binary_to_integer(proplists:get_value(<<"column3">>, Ret, <<"0">>)),
@@ -435,4 +617,3 @@ pool_cdt_read(N) ->
     Key = integer_to_binary(N),
     aspike_srv_worker:cdt_get(<<"test">>, <<"rtb-gateway-fcap-users2">>, Key),
     pool_cdt_read(N - 1).
-
