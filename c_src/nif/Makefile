@@ -58,16 +58,16 @@ COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 $(C_SRC_OUTPUT): $(OBJECTS)
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
-%.o: %.c
+%.o: %.c %.h
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
 
-%.o: %.cc
+%.o: %.cc %.h
 	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
 
-%.o: %.C
+%.o: %.C %.h
 	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
 
-%.o: %.cpp
+%.o: %.cpp %.h
 	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
 
 clean:
