@@ -136,6 +136,7 @@ string* get_target_node_for_key(const char* namespace_name, const char* set, con
 
     string* node_name = nullptr;
     if (target_node && strlen(target_node->name) > 0) {
+        // make a copy of node name because the pointer to it may be deleted
         node_name = new string((char *)target_node->name);
     }
 

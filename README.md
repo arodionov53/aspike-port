@@ -141,7 +141,7 @@ aspike_nif_test:stress_test().
 This function runs certain amount of operations with different amount of parallel clients and measures the operation times.
 Then it outputs the results to the console and writes the same data to json file in the root folder of this project.
 You might want to edit function `stress_test()` to define some parameters. The main are:
-- **AmountsOfClients** - number of clients to run in parallel. For instance, [5, 10] means first 5 clients will query database in parallel, and after they fnish the same will be repeated with 10 parallel clients.
+- **AmountsOfClients** - number of clients to run in parallel. For instance, [5, 10] means first 5 clients will query database in parallel, and after they finish the same will be repeated with 10 parallel clients.
 - **AmountOfOps** - amount operations each client will do. Not all clients combined, but each client.
 - **Command** - the command to run. This variable basically defines the `ActionFunc` variable, a function which does the actual operation.
 - **ActionFunc** - the test function which defined what to do on each 'Operation'. Basically you want to keep it as simple as possible, like one operation per time, but you can add combination of command, like cdt_put followed by cdt_get. And if you do this keep in mind that Aerospike may be running in eventual consistency mode (check your mode by reading Aerospike docs how to do that). The function defined in `ActionFunc` accepts `Counter` variable which allows you to build unique primary key or any other data to be distinct from the other operation.

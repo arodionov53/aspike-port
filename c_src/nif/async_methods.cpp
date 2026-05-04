@@ -78,15 +78,11 @@ struct callback_data {
     ErlNifEnv* erl_pi_env = nullptr;
     ErlNifPid caller_pid;
     ERL_NIF_TERM ref;
-    vector<as_cdt_ctx*>* cdt_context_vector = nullptr;
     vector<as_arraylist>* arraylist_vector = nullptr;
     vector<as_operations>* operations_vector = nullptr;
     string* node_name = nullptr;
     string* bin_name = nullptr;
     as_batch_records* batch_records = nullptr;
-    as_arraylist* arraylist = nullptr;
-    as_operations* operations = nullptr;
-    as_key* record_key = nullptr;
 
     callback_data(ErlNifEnv* caller_pd_env, const ERL_NIF_TERM ref_to_save) {
         enif_self(caller_pd_env, &caller_pid);
@@ -111,24 +107,6 @@ struct callback_data {
                 as_operations_destroy(&operations);
             }
             delete operations_vector;
-        }
-        if (cdt_context_vector) {
-            for (auto cdt_ctx : *cdt_context_vector) {
-                as_cdt_ctx_destroy(cdt_ctx);
-            }
-            delete cdt_context_vector;
-        }
-        if (arraylist) {
-            as_arraylist_destroy(arraylist);
-            delete arraylist;
-        }
-        if (operations) {
-            as_operations_destroy(operations);
-            delete operations;
-        }
-        if (record_key) {
-            as_key_destroy(record_key);
-            delete record_key;
         }
         if (erl_pi_env) {
             enif_free_env(erl_pi_env);
@@ -176,7 +154,6 @@ static void cdt_put_async_callback(as_error* err, as_record* record, void* udata
     }
 
     enif_send(NULL, &cb_data->caller_pid, cb_data->erl_pi_env, result_msg);
-    cb_data->erl_pi_env = nullptr;
     delete cb_data;
 }
 
@@ -213,6 +190,9 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
         auto msg = enif_make_string(env, "put", ERL_NIF_UTF8);
         return enif_make_tuple2(env, atom_ok, msg);
     }
+
+    ERL_NIF_TERM return_data;
+    if (check_connected(env, &return_data)) return return_data;
 
     long ttl;
     if (!enif_get_long(env, argv[5], &ttl)) {
@@ -270,29 +250,23 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
         total_operations += bin_data_len;
         bins_copy = bins_tail;
     }
-    auto operations = new as_operations();
-    as_operations_init(operations, total_operations);
+    as_operations operations;
+    as_operations_inita(&operations, total_operations);
     if (ttl != 0) {
-        operations->ttl = ttl;
+        operations.ttl = ttl;
     } else {
-        operations->ttl = -2;
+        operations.ttl = -2;
     }
-
-    ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
 
     auto node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    auto record_key = new as_key();
-    as_key_init_str(record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
+    as_key record_key;
+    as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    auto cdt_contexts = new vector<as_cdt_ctx*>();
+    vector<as_cdt_ctx*> cdt_contexts;
 
     auto cb_data = new callback_data(env, argv[0]);
     cb_data->node_name = node_name;
-    cb_data->operations = operations;
-    cb_data->record_key = record_key;
-    cb_data->cdt_context_vector = cdt_contexts;
 
     as_map_policy put_mode;
     as_map_policy_set(&put_mode, AS_MAP_KEY_ORDERED, AS_MAP_UPDATE);
@@ -356,12 +330,12 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
                 // this map
                 as_cdt_ctx* context = as_cdt_ctx_create(1);
                 // save context for later removal
-                cdt_contexts->push_back(context);
+                cdt_contexts.push_back(context);
                 // getting first level key name
                 ErlNifBinary erl_key_name;
                 if (enif_inspect_binary(env, data_head, &erl_key_name)) {
                     // erl_key_name points to something like <<"map_1_name">>.
-                    // Now, make a copy of the string on heap (because the erl_key_name localed on stack)
+                    // Now, make a copy of the string on heap (because the erl_key_name located on stack)
                     // so Aerospike will be able to free its memory once the 'key_name' variable will be destroyed.
                     // Allocate size + 1 for null terminator
                     uint8_t * copy_on_heap = (uint8_t *)malloc(sizeof(uint8_t) * (erl_key_name.size + 1));
@@ -379,13 +353,13 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
                     // erl_value_data points to something like <<"map_1_value">>.
                     // Create aerospike string (a second level key name) which will be freed by context on its removal.
                     as_string* key_name = as_string_new_strdup("value");
-                    // Make a copy of the data on heap (because the erl_value_data localed on stack)
+                    // Make a copy of the data on heap (because the erl_value_data located on stack)
                     // so Aerospike will be able to free its memory once the 'value_data' variable will be destroyed.
                     uint8_t * copy_on_heap = (uint8_t *)malloc(sizeof(uint8_t) * erl_value_data.size);
                     memcpy(copy_on_heap, erl_value_data.data, erl_value_data.size);
                     as_bytes* value_data = as_bytes_new_wrap(copy_on_heap, erl_value_data.size, true);
                     // next line creates a key 'value' in the map we created above in 'opnum == 1'
-                    as_operations_map_put(operations, bin_name.c_str(), cdt_contexts->back(), &put_mode, (as_val*)key_name, (as_val*)value_data);
+                    as_operations_map_put(&operations, bin_name.c_str(), cdt_contexts.back(), &put_mode, (as_val*)key_name, (as_val*)value_data);
                 }
                 opnum++;
             } else if (opnum == 2) {
@@ -397,7 +371,7 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
                     as_string* key_name = as_string_new_strdup("ttl");
                     as_integer* ttl_value = as_integer_new(i64);
                     // next line creates a key 'ttl' in the map we created above in 'opnum == 1'
-                    as_operations_map_put(operations, bin_name.c_str(), cdt_contexts->back(), &put_mode, (as_val*)key_name, (as_val*)ttl_value);
+                    as_operations_map_put(&operations, bin_name.c_str(), cdt_contexts.back(), &put_mode, (as_val*)key_name, (as_val*)ttl_value);
                 }
 
                 // let's create a 'wt' key on second-level map
@@ -407,7 +381,7 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
                 long timestamp = chrono::duration_cast<chrono::seconds>(now).count();
                 as_integer* wt_value = as_integer_new(timestamp);
                 // next line creates a key 'wt' in the map we created above in 'opnum == 1'
-                as_operations_map_put(operations, bin_name.c_str(), cdt_contexts->back(), &put_mode, (as_val*)key_name, (as_val*)wt_value);
+                as_operations_map_put(&operations, bin_name.c_str(), cdt_contexts.back(), &put_mode, (as_val*)key_name, (as_val*)wt_value);
 
                 opnum = 0;
             } else {
@@ -420,7 +394,13 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     }
 
     as_error err;
-    as_status status = aerospike_key_operate_async(as, &err, &policy, record_key, operations, cdt_put_async_callback, cb_data, NULL, NULL);
+    as_status status = aerospike_key_operate_async(as, &err, &policy, &record_key, &operations, cdt_put_async_callback, cb_data, NULL, NULL);
+
+    as_operations_destroy(&operations);
+    for (auto cdt_ctx : cdt_contexts) {
+        as_cdt_ctx_destroy(cdt_ctx);
+    }
+    as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
         delete cb_data;
@@ -479,7 +459,6 @@ static void cdt_get_async_callback(as_error* err, as_record* record, void* udata
     }
 
     enif_send(NULL, &cb_data->caller_pid, cb_data->erl_pi_env, result_msg);
-    cb_data->erl_pi_env = nullptr;
     delete cb_data;
 }
 
@@ -528,15 +507,16 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
 
     auto node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    auto record_key = new as_key();
-    as_key_init_str(record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
+    as_key record_key;
+    as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
 
     auto cb_data = new callback_data(env, argv[0]);
     cb_data->node_name = node_name;
-    cb_data->record_key = record_key;
 
     as_error err;
-    as_status status = aerospike_key_get_async(as, &err, &policy, record_key, cdt_get_async_callback, cb_data, NULL, NULL);
+    as_status status = aerospike_key_get_async(as, &err, &policy, &record_key, cdt_get_async_callback, cb_data, NULL, NULL);
+
+    as_key_destroy(&record_key);
     
     if (status != AEROSPIKE_OK) {
         delete cb_data;
@@ -595,7 +575,6 @@ static void cdt_delete_by_keys_async_callback(as_error* err, as_record* record, 
     }
 
     enif_send(NULL, &cb_data->caller_pid, cb_data->erl_pi_env, result_msg);
-    cb_data->erl_pi_env = nullptr;
     delete cb_data;
 }
 
@@ -635,15 +614,15 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
 
     auto node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    auto remove_list = new as_arraylist();
-    as_arraylist_init(remove_list, length, length);
+    as_arraylist remove_list;
+    as_arraylist_init(&remove_list, length, length);
 
-    auto record_key = new as_key();
-    as_key_init_str(record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
+    as_key record_key;
+    as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    auto operations = new as_operations();
-    as_operations_init(operations, 1);
-    operations->ttl = AS_RECORD_NO_CHANGE_TTL;  // Preserve existing record TTL (-2)
+    as_operations operations;
+    as_operations_inita(&operations, 1);
+    operations.ttl = AS_RECORD_NO_CHANGE_TTL;  // Preserve existing record TTL (-2)
     as_map_policy put_mode;
     as_map_policy_set(&put_mode, AS_MAP_KEY_ORDERED, AS_MAP_UPDATE);
 
@@ -661,7 +640,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
             // may be not a null-terminated string, and passing subkey_term.data to 
             // as_arraylist_append_str() might be a bad idea.
             subkey_str.assign((const char*)subkey_term.data, subkey_term.size);
-            as_arraylist_append_str(remove_list, (char*)subkey_str.c_str());
+            as_arraylist_append_str(&remove_list, (char*)subkey_str.c_str());
             subkeys_num++;
         }
         list = tail;
@@ -669,18 +648,19 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
     // we need to be sure we put all keys into the list, otherwise the behavior
     // of operation can be undefined as we defined the length of keys to remove
     if (subkeys_num == length) {
-        as_operations_add_map_remove_by_key_list(operations, bin_name.c_str(), (as_list*)remove_list, AS_MAP_RETURN_NONE);
+        as_operations_add_map_remove_by_key_list(&operations, bin_name.c_str(), (as_list*)&remove_list, AS_MAP_RETURN_NONE);
     }
 
     auto cb_data = new callback_data(env, argv[0]);
     cb_data->node_name = node_name;
-    cb_data->operations = operations;
-    cb_data->arraylist = remove_list;
-    cb_data->record_key = record_key;
 
     as_error err;
-    as_status status = aerospike_key_operate_async(as, &err, NULL, record_key, operations, cdt_delete_by_keys_async_callback, cb_data, NULL, NULL);
+    as_status status = aerospike_key_operate_async(as, &err, NULL, &record_key, &operations, cdt_delete_by_keys_async_callback, cb_data, NULL, NULL);
 
+    as_operations_destroy(&operations);
+    as_arraylist_destroy(&remove_list);
+    as_key_destroy(&record_key);
+    
     if (status != AEROSPIKE_OK) {
         delete cb_data;
 
@@ -737,7 +717,6 @@ void cdt_delete_by_keys_batch_async_callback(as_error* err, as_batch_records* re
     }
 
     enif_send(NULL, &cb_data->caller_pid, cb_data->erl_pi_env, result_msg);
-    cb_data->erl_pi_env = nullptr;
     delete cb_data;
 }
 
@@ -883,7 +862,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_batch_async(ErlNifEnv* env, int argc,
         return_data = enif_make_tuple2(env, atom_error, error_tuple);
     } else {
         // we don't do tracking of async node connections here because this operations will be executed
-        // over several different nodes, and taking into consideraion the complexity of implementing
+        // over several different nodes, and taking into consideration the complexity of implementing
         // support of this (we need to store all node names for all PKs) + quite little percentage of
         // cdt_delete_by_keys_batch() calls compare to cdt_put() and cdt_get(), there is no sense to
         // do this tracking.
@@ -984,7 +963,6 @@ void segment_tag_get_async_callback(as_error* err, as_record* records, void* uda
     }
 
     enif_send(NULL, &cb_data->caller_pid, cb_data->erl_pi_env, result_msg);
-    cb_data->erl_pi_env = nullptr;
     delete cb_data;
 }
 
@@ -1018,18 +996,20 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
 
     auto node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    auto record_key = new as_key();
-    as_key_init_str(record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
+    as_key record_key;
+    as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
 
     const char* bins_to_read[] = {(*bin_name).c_str(), NULL};
 
     auto cb_data = new callback_data(env, argv[0]);
     cb_data->node_name = node_name;
-    cb_data->record_key = record_key;
+    // we save bin_name because we'll need it in the segment_tag_get_async_callback()
     cb_data->bin_name = bin_name;
 
     as_error err;
-    as_status status = aerospike_key_select_async(as, &err, nullptr, record_key, bins_to_read, segment_tag_get_async_callback, cb_data, nullptr, nullptr);
+    as_status status = aerospike_key_select_async(as, &err, nullptr, &record_key, bins_to_read, segment_tag_get_async_callback, cb_data, nullptr, nullptr);
+
+    as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
         delete cb_data;
