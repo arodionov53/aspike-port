@@ -31,9 +31,6 @@ enum aspike_status {
 #define MAX_BINS_NUMBER 1024
 
 // Extern and inline declarations for global variables and functions
-extern aerospike as;
-extern bool is_connected_flag;
-extern bool statistics_enabled;
 extern ERL_NIF_TERM atom_error;
 extern ERL_NIF_TERM atom_ok;
 extern ERL_NIF_TERM atom_done;
@@ -54,14 +51,9 @@ extern atomic<int64_t> async_peak_ttl_counter;
 extern string* get_target_node_for_key (const char* namespace_name, const char* set, const char* key_str);
 extern shared_ptr<NodeConnectionStats> get_or_create_node_stats (string* node_name);
 
-inline aerospike* get_aerospike () { return &as; }
-inline bool check_connected (ErlNifEnv* env, ERL_NIF_TERM* err) {
-    if (!is_connected_flag) {
-        *err = enif_make_tuple2(env, atom_error, atom_not_connected);
-        return true;
-    }
-    return false;
-}
+extern aerospike* get_aerospike ();
+extern bool statistics_enabled ();
+extern bool check_connected (ErlNifEnv* env, ERL_NIF_TERM* err);
 
 #define RETURN_ERROR_WITH_MSG_IF(t_var, p_rec, err_code, err_msg) \
     if(t_var) { \

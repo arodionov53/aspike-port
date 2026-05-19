@@ -43,7 +43,7 @@ using namespace std;
 class SyncOperationCounter {
 public:
     explicit SyncOperationCounter() {
-        if (!statistics_enabled) return;
+        if (!statistics_enabled()) return;
 
         sync_current_counter.fetch_add(1);
 
@@ -56,7 +56,7 @@ public:
     }
 
     ~SyncOperationCounter() {
-        if (!statistics_enabled) return;
+        if (!statistics_enabled()) return;
         sync_current_counter.fetch_sub(1);
     }
 

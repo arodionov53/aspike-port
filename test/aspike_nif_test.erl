@@ -5,6 +5,8 @@
     connection_test/0,
     quick_test/0,
     stress_test/0,
+    stress_test_loop/0,
+    format_timestamp/0,
     memory_leak_test/0,
     get_api_mode/1,
 
@@ -74,6 +76,7 @@ init() ->
                 ?ASYNC_MAX_CONNECTION
             ),
             aspike_nif:set_event_loops_amount(?EVENT_LOOPS_AMOUNT),
+            aspike_nif:enable_statistic_collection(1),
             aspike_nif:host_add(),
             ConnectionResponse = aspike_nif:connect(),
             io:format("aspike_nif:connect: ~p~n", [ConnectionResponse]),
@@ -108,7 +111,26 @@ quick_test() ->
     aspike_nif_quick_test:run().
 
 stress_test() ->
-    aspike_nif_stress_test:run().
+    stress_test_loop().
+
+stress_test_loop() ->
+    io:format("Starting stress test run at ~s~n", [format_timestamp()]),
+    try
+        aspike_nif_stress_test:run(),
+        io:format("Stress test completed successfully at ~s~n", [format_timestamp()])
+    catch
+        Class:Reason:Stacktrace ->
+            io:format("Stress test failed at ~s: ~p:~p~n~p~n",
+                     [format_timestamp(), Class, Reason, Stacktrace])
+    end,
+    io:format("Waiting 1 minute before next run...~n"),
+    timer:sleep(60000), % Sleep for 1 minute (60,000 milliseconds)
+    stress_test_loop().
+
+format_timestamp() ->
+    {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:local_time(),
+    io_lib:format("~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w",
+                  [Year, Month, Day, Hour, Minute, Second]).
 
 memory_leak_test() ->
     aspike_nif_memory_leak_test:run().

@@ -48,7 +48,7 @@ using namespace std;
 
 aerospike as;
 bool is_connected_flag = false;
-bool statistics_enabled = false;
+bool statistics_enabled_flag = false;
 static as_monitor app_complete_monitor;
 static uint32_t event_loops_amount = 1;
 
@@ -73,9 +73,23 @@ atomic<int64_t> async_peak_ttl_counter(0);
 static unordered_map<string, shared_ptr<NodeConnectionStats>> node_stats_map;
 static shared_mutex node_stats_rw_mutex; // Reader-writer mutex for thread-safe map access
 
+aerospike* get_aerospike () { return &as; }
+
+bool statistics_enabled () {
+    return statistics_enabled_flag;
+}
+
+bool check_connected (ErlNifEnv* env, ERL_NIF_TERM* err) {
+    if (!is_connected_flag) {
+        *err = enif_make_tuple2(env, atom_error, atom_not_connected);
+        return true;
+    }
+    return false;
+}
+
 // Get target node for a key using proper Aerospike partition routing
 string* get_target_node_for_key(const char* namespace_name, const char* set, const char* key_str) {
-    if (!statistics_enabled || !namespace_name || !key_str || !is_connected_flag || !as.cluster) {
+    if (!statistics_enabled_flag || !namespace_name || !key_str || !is_connected_flag || !as.cluster) {
         return nullptr;
     }
 
@@ -153,9 +167,9 @@ shared_ptr<NodeConnectionStats> get_or_create_node_stats(string* node_name) {
         shared_lock<shared_mutex> read_lock(node_stats_rw_mutex);
         auto it = node_stats_map.find(*node_name);
         if (it != node_stats_map.end()) {
-            return it->second;  // Found it! Multiple readers can do this concurrently
+            return it->second;
         }
-    } // Shared lock released here
+    }
 
     // Slow path: exclusive lock for writing (only one thread can do this)
     lock_guard<shared_mutex> write_lock(node_stats_rw_mutex);
@@ -168,7 +182,11 @@ shared_ptr<NodeConnectionStats> get_or_create_node_stats(string* node_name) {
 
     // Create new stats entry
     auto stats = make_shared<NodeConnectionStats>();
-    node_stats_map[*node_name] = stats;
+    // create a string copy because this might be gone immediately
+    // it can be seen as a memory leak if the node_name are not unique,
+    // but fortunately (seem like) the node names are static and not changed.
+    string * copy = new string(*node_name);
+    node_stats_map[*copy] = stats;
     return stats;
 }
 
@@ -250,7 +268,7 @@ static ERL_NIF_TERM aspike_nif_enable_statistic_collection(ErlNifEnv* env, int a
 	    return enif_make_badarg(env);
     }
 
-    statistics_enabled = enabled == 1;
+    statistics_enabled_flag = enabled == 1;
 
     ERL_NIF_TERM msg = enif_make_string(env, "set", ERL_NIF_UTF8);
     return enif_make_tuple2(env, atom_ok, msg);
@@ -571,7 +589,7 @@ static ERL_NIF_TERM aspike_nif_host_info(ErlNifEnv* env, int argc, const ERL_NIF
 
 static ERL_NIF_TERM aspike_nif_get_connections_stats(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     
-    if (!statistics_enabled) {
+    if (!statistics_enabled_flag) {
         ERL_NIF_TERM global_stats = enif_make_tuple6(env,
             enif_make_uint(env, 0),
             enif_make_uint(env, 0),

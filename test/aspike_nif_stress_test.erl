@@ -18,7 +18,7 @@ run() ->
     %Command = cdt_delete_by_keys_batch,
     %Command = segment_tag_get,
     AmountsOfClients = [1, 2, 4, 8, 10, 12, 14, 20, 50, 100, 200, 250, 300],
-    %AmountsOfClients = [1],
+    %AmountsOfClients = [5],
 
     Namespace = <<"test">>,
     SetName = <<"test_set">>,
@@ -47,8 +47,8 @@ cdt_put_action_func(Namespace, SetName) ->
     fun(Counter) ->
         {RecordKeyName, {BinName1, Key1, Value1}, {BinName2, Key2, Value2}} = aspike_nif_test_utils:get_test_data_from_counter(Counter),
         Bins = [{BinName1, [Key1, Value1, Counter]}, {BinName2, [Key2, Value2, Counter]}],
-        % in seconds, 10 * 60 means 10 minutes
-        TTL = 10 * 60,
+        % in seconds
+        TTL = 5,
         PutRes = aspike_nif_test:cdt_put(Namespace, SetName, RecordKeyName, Bins, TTL),
         case PutRes of
             {error, PutError} ->
