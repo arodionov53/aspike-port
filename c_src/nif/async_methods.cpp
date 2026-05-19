@@ -64,6 +64,7 @@ void increment_async_connection_counter_with_node(string * node_name) {
 }
 
 void decrement_async_connection_counter_with_node(string* node_name) {
+    if (!node_name) return;
     async_current_counter.fetch_sub(1);
     auto node_stats = get_or_create_node_stats(node_name);
     node_stats->async_current.fetch_sub(1);
@@ -79,9 +80,9 @@ struct callback_data {
     ERL_NIF_TERM ref;
     vector<as_arraylist>* arraylist_vector = nullptr;
     vector<as_operations>* operations_vector = nullptr;
+    as_batch_records* batch_records = nullptr;
     string* node_name = nullptr;
     string* bin_name = nullptr;
-    as_batch_records* batch_records = nullptr;
 
     callback_data(ErlNifEnv* caller_pd_env, const ERL_NIF_TERM ref_to_save) {
         enif_self(caller_pd_env, &caller_pid);
@@ -130,7 +131,7 @@ static void cdt_put_async_callback(as_error* err, as_record* record, void* udata
 
     ERL_NIF_TERM result_msg;
 
-    if (cb_data->node_name) {
+    if (cb_data->node_name && statistics_enabled()) {
         decrement_async_connection_counter_with_node(cb_data->node_name);
     }
 
@@ -438,7 +439,7 @@ static void cdt_get_async_callback(as_error* err, as_record* record, void* udata
 
     ERL_NIF_TERM result_msg;
 
-    if (cb_data->node_name) {
+    if (cb_data->node_name && statistics_enabled()) {
         decrement_async_connection_counter_with_node(cb_data->node_name);
     }
 
@@ -562,7 +563,7 @@ static void cdt_delete_by_keys_async_callback(as_error* err, as_record* record, 
 
     ERL_NIF_TERM result_msg;
 
-    if (cb_data->node_name) {
+    if (cb_data->node_name && statistics_enabled()) {
         decrement_async_connection_counter_with_node(cb_data->node_name);
     }
 
@@ -902,7 +903,7 @@ void segment_tag_get_async_callback(as_error* err, as_record* records, void* uda
 
     ERL_NIF_TERM result_msg;
 
-    if (cb_data->node_name) {
+    if (cb_data->node_name && statistics_enabled()) {
         decrement_async_connection_counter_with_node(cb_data->node_name);
     }
 
