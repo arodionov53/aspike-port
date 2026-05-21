@@ -1,13 +1,11 @@
 {application, aspike_port,
- [{description, "Erlang port for communication with aerospike"},
+ [{description, "Erlang lib for communication with aerospike"},
   {vsn, "0.1.0"},
   {registered, []},
-  {mod, {aspike_port_app, []}},
   {applications,
    [kernel,
     stdlib
    ]},
-  {included_applications, [pooler]},
   {env,[]},
   {modules, []},
 

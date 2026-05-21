@@ -1,3 +1,26 @@
+## Port implementation (disabled)
+
+This repository previously included both a NIF and an Erlang Port implementation
+for communicating with Aerospike. The Port implementation (`aspike_srv`,
+`aspike_port_app`, `aspike_port_sup`) has been disabled because all consumers
+now use the NIF directly via `aspike_nif` module, making the Port process
+unnecessary overhead.
+
+To re-enable the Port implementation:
+
+1. Restore the OTP application callback in `src/aspike_port.app.src`:
+   ```erlang
+   {mod, {aspike_port_app, []}},
+   {included_applications, [pooler]},
+   ```
+
+2. Add the port build back to `c_src/Makefile`:
+   ```makefile
+   %:
+   	$(MAKE) -C port
+   	$(MAKE) -C nif
+   ```
+
 ## Build
 
 You need the aerospike client installed on your machine, which requires
