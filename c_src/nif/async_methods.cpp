@@ -265,12 +265,11 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     }
 
     string * node_name = nullptr;
-    string local_node_name;
     if (statistics_enabled()) {
         node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        // make another stack copy of this string for the statistic collection. We can't rely on node_name
-        // variable as it might be freed by callback if it finishes before this function records stat data
-        local_node_name.assign(node_name->c_str());
+        if (node_name) {
+            increment_async_connection_counter_with_node(node_name);
+        }
     }
 
     as_key record_key;
@@ -411,6 +410,9 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
+        if (statistics_enabled()) {
+            decrement_async_connection_counter_with_node(node_name);
+        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;
@@ -425,9 +427,6 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
 
         return_data = enif_make_tuple2(env, atom_error, error_tuple);
     } else {
-        if (statistics_enabled()) {
-            increment_async_connection_counter_with_node(&local_node_name);
-        }
         return_data = enif_make_tuple2(env, atom_ok, atom_in_progress);
     }
 
@@ -515,12 +514,11 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     if (check_connected(env, &return_data)) return return_data;
 
     string * node_name = nullptr;
-    string local_node_name;
     if (statistics_enabled()) {
         node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        // make another stack copy of this string for the statistic collection. We can't rely on node_name
-        // variable as it might be freed by callback if it finishes before this function records stat data
-        local_node_name.assign(node_name->c_str());
+        if (node_name) {
+            increment_async_connection_counter_with_node(node_name);
+        }
     }
 
     as_key record_key;
@@ -535,6 +533,9 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
+        if (statistics_enabled()) {
+            decrement_async_connection_counter_with_node(node_name);
+        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;
@@ -549,9 +550,6 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
 
         return_data = enif_make_tuple2(env, atom_error, error_tuple);
     } else {
-        if (statistics_enabled()) {
-            increment_async_connection_counter_with_node(&local_node_name);
-        }
         return_data = enif_make_tuple2(env, atom_ok, atom_in_progress);
     }
 
@@ -630,12 +628,11 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
     string bin_name((const char*)erl_bin_name.data, erl_bin_name.size);
 
     string * node_name = nullptr;
-    string local_node_name;
     if (statistics_enabled()) {
         node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        // make another stack copy of this string for the statistic collection. We can't rely on node_name
-        // variable as it might be freed by callback if it finishes before this function records stat data
-        local_node_name.assign(node_name->c_str());
+        if (node_name) {
+            increment_async_connection_counter_with_node(node_name);
+        }
     }
 
     as_arraylist remove_list;
@@ -686,6 +683,9 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
+        if (statistics_enabled()) {
+            decrement_async_connection_counter_with_node(node_name);
+        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;
@@ -700,9 +700,6 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
 
         return_data = enif_make_tuple2(env, atom_error, error_tuple);
     } else {
-        if (statistics_enabled()) {
-            increment_async_connection_counter_with_node(&local_node_name);
-        }
         return_data = enif_make_tuple2(env, atom_ok, atom_in_progress);
     }
 
@@ -1020,12 +1017,11 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
     auto bin_name = new string((const char*)erl_bin_name.data, erl_bin_name.size);
 
     string * node_name = nullptr;
-    string local_node_name;
     if (statistics_enabled()) {
         node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        // make another stack copy of this string for the statistic collection. We can't rely on node_name
-        // variable as it might be freed by callback if it finishes before this function records stat data
-        local_node_name.assign(node_name->c_str());
+        if (node_name) {
+            increment_async_connection_counter_with_node(node_name);
+        }
     }
 
     as_key record_key;
@@ -1044,6 +1040,9 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
+        if (statistics_enabled()) {
+            decrement_async_connection_counter_with_node(node_name);
+        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;
@@ -1058,9 +1057,6 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
 
         return_data = enif_make_tuple2(env, atom_error, error_tuple);
     } else {
-        if (statistics_enabled()) {
-            increment_async_connection_counter_with_node(&local_node_name);
-        }
         return_data = enif_make_tuple2(env, atom_ok, atom_in_progress);
     }
 
