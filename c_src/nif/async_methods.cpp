@@ -350,7 +350,14 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
                     // Now, create an aerospike string which will be freed by context on its removal,
                     // and use erlang term (the data of which wil be available during this function lifespan) to
                     // feed the string data. The 'false' flag means no memory free for that data.
-                    as_string* key_name = as_string_new((char *)erl_key_name.data, false);
+                    // Now, make a copy of the string on heap (because the erl_key_name located on stack)
+                    // so Aerospike will be able to free its memory once the 'key_name' variable will be destroyed.
+                    // Allocate size + 1 for null terminator
+                    uint8_t * copy_on_heap = (uint8_t *)malloc(sizeof(uint8_t) * (erl_key_name.size + 1));
+                    memcpy(copy_on_heap, erl_key_name.data, erl_key_name.size);
+                    copy_on_heap[erl_key_name.size] = '\0'; // Null terminate the string
+                    // create aerospike string which will be freed by context on its removal
+                    as_string* key_name = as_string_new((char *)copy_on_heap, true);
                     as_cdt_ctx_add_map_key_create(context, (as_val*)key_name, AS_MAP_KEY_ORDERED);
                 }
                 opnum++;

@@ -150,6 +150,10 @@ ERL_NIF_TERM aspike_format_value_out(ErlNifEnv* env, as_val_t type, as_bin_value
             return enif_make_list_from_array(env, erl_list.data(), len);
         } break;
         case AS_MAP: {
+            // this case assumes the structure of val is one created by cdt_put operation.
+            // This means maps nested into parent map. If you try to read with this code something else, like
+            // if values of the parent map keys are AS_BYTES, then for the same of safety the whole value will
+            // be converted into string by calling as_val_tostring().
             auto len = as_map_size((as_map*)(&val->map));
             vector<ERL_NIF_TERM> erl_list;
             erl_list.reserve(len * 2);
@@ -161,36 +165,45 @@ ERL_NIF_TERM aspike_format_value_out(ErlNifEnv* env, as_val_t type, as_bin_value
                 long fccount = 0;
                 const as_val* val = as_orderedmap_iterator_next(&it);
                 as_pair* apr = as_pair_fromval(val);
-                erl_list.push_back(aspike_get_binary_from_asval(env, as_pair_1(apr)));
+                auto map_key = as_pair_1(apr);
+                auto map_value = as_pair_2(apr);
+                erl_list.push_back(aspike_get_binary_from_asval(env, map_key));
 
-                const as_orderedmap* vmap = (const as_orderedmap*)as_map_fromval(as_pair_2(apr));
-                as_orderedmap_iterator iti_int;
-                as_orderedmap_iterator_init(&iti_int, vmap);
-                ERL_NIF_TERM vnt = atom_undefined;
-                ERL_NIF_TERM ttlsm = enif_make_int64(env, 0);
-                ERL_NIF_TERM writetime = enif_make_int64(env, 0);
-                while (as_orderedmap_iterator_has_next(&iti_int)) {
-                    const as_val* valsm = as_orderedmap_iterator_next(&iti_int);
-                    as_pair* aprsm = as_pair_fromval(valsm);
-                    if (as_pair_2(aprsm)->type == 9) {
-                        vnt = aspike_get_binary_from_asval(env, as_pair_2(aprsm));
-                        fccount++;
-                    } else if (as_pair_2(aprsm)->type == 3) {
-                        auto smkey = as_string_get((as_string*)as_pair_1(aprsm));
-                        if (strcmp(smkey, "ttl") == 0) {
-                            ttlsm = enif_make_int64(env, as_integer_get((as_integer*)as_pair_2(aprsm)));
-                        } else if (strcmp(smkey, "wt") == 0) {
-                            writetime = enif_make_int64(env, as_integer_get((as_integer*)as_pair_2(aprsm)));
+                if (as_val_type(map_value) == AS_MAP) {
+                    const as_orderedmap* vmap = (const as_orderedmap*)as_map_fromval(map_value);
+                    as_orderedmap_iterator iti_int;
+                    as_orderedmap_iterator_init(&iti_int, vmap);
+                    ERL_NIF_TERM vnt = atom_undefined;
+                    ERL_NIF_TERM ttlsm = enif_make_int64(env, 0);
+                    ERL_NIF_TERM writetime = enif_make_int64(env, 0);
+                    while (as_orderedmap_iterator_has_next(&iti_int)) {
+                        const as_val* valsm = as_orderedmap_iterator_next(&iti_int);
+                        as_pair* aprsm = as_pair_fromval(valsm);
+                        if (as_pair_2(aprsm)->type == 9) {
+                            vnt = aspike_get_binary_from_asval(env, as_pair_2(aprsm));
+                            fccount++;
+                        } else if (as_pair_2(aprsm)->type == 3) {
+                            auto smkey = as_string_get((as_string*)as_pair_1(aprsm));
+                            if (strcmp(smkey, "ttl") == 0) {
+                                ttlsm = enif_make_int64(env, as_integer_get((as_integer*)as_pair_2(aprsm)));
+                            } else if (strcmp(smkey, "wt") == 0) {
+                                writetime = enif_make_int64(env, as_integer_get((as_integer*)as_pair_2(aprsm)));
+                            }
+                            fccount++;
+                        } else if (as_pair_2(aprsm)->type == 4) {
+                            vnt = aspike_get_binary_from_asval(env, as_pair_2(aprsm));
+                            fccount++;
                         }
-                        fccount++;
-                    } else if (as_pair_2(aprsm)->type == 4) {
-                        vnt = aspike_get_binary_from_asval(env, as_pair_2(aprsm));
-                        fccount++;
                     }
-                }
-                as_orderedmap_iterator_destroy(&iti_int);
-                if ((fccount == 2) || (fccount == 3)) {
-                    erl_list.push_back(enif_make_tuple3(env, vnt, ttlsm, writetime));
+                    as_orderedmap_iterator_destroy(&iti_int);
+                    if ((fccount == 2) || (fccount == 3)) {
+                        erl_list.push_back(enif_make_tuple3(env, vnt, ttlsm, writetime));
+                    }
+                } else {
+                    char* map_value_as_str = as_val_tostring(map_value);
+                    ERL_NIF_TERM erl_map_value_as_str = enif_make_string(env, map_value_as_str, ERL_NIF_UTF8);
+                    erl_list.push_back(erl_map_value_as_str);
+                    cf_free(map_value_as_str);
                 }
             }
             as_orderedmap_iterator_destroy(&it);
@@ -202,7 +215,7 @@ ERL_NIF_TERM aspike_format_value_out(ErlNifEnv* env, as_val_t type, as_bin_value
         } break;
         default:
             char* val_as_str = as_val_tostring(val);
-            ERL_NIF_TERM res = enif_make_string(env, as_val_tostring(val), ERL_NIF_UTF8);
+            ERL_NIF_TERM res = enif_make_string(env, val_as_str, ERL_NIF_UTF8);
             cf_free(val_as_str);
             return res;
     }
