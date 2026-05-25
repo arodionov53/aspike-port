@@ -29,7 +29,7 @@ run() ->
                 io:format("ERROR: cdt_put returned unexpected result: ~p~n", [InsertOther]),
                 halt(1)
         end,
-        io:format("cdt_put works fine ...~n", []),
+        io:format("cdt_put works fine.~n", []),
 
         % Test CDT get operation and data validation
         ReadRes = aspike_nif_test:cdt_get(Namespace, SetName, PK1),
@@ -47,7 +47,7 @@ run() ->
                 io:format("ERROR: cdt_get failed with: ~p~n", [ReadError]),
                 halt(1)
         end,
-        io:format("cdt_get works fine ...~n", []),
+        io:format("cdt_get works fine.~n", []),
 
         % Test cdt_delete_by_keys functionality
         BinName = <<"profile">>,
@@ -83,7 +83,7 @@ run() ->
                 io:format("ERROR: cdt_get after delete failed with: ~p~n", [ReadAfterDeleteError]),
                 halt(1)
         end,
-        io:format("cdt_delete_by_keys works fine ...~n", []),
+        io:format("cdt_delete_by_keys works fine.~n", []),
 
         % Test cdt_delete_by_keys_batch functionality
         % First, create more test data for batch operations
@@ -169,15 +169,16 @@ run() ->
                 io:format("ERROR: cdt_get for PK3 after batch delete failed with: ~p~n", [ReadAfterBatchDeleteError3]),
                 halt(1)
         end,
-        io:format("cdt_delete_by_keys_batch works fine ...~n", []),
+        io:format("cdt_delete_by_keys_batch works fine.~n", []),
 
         % Test map operations
+        PK4 = <<"user_4">>,
         Map = #{
             key_one => <<"value_1">>,
             "key_two" => <<"value_2">>,
             <<"key_three">> => <<"value_3">>
         },
-        MapPutResult = aspike_nif:map_put(Namespace, SetName, PK1, <<"profile2">>, 5, Map),
+        MapPutResult = aspike_nif:map_put(Namespace, SetName, PK4, <<"profile2">>, 5, Map),
         case MapPutResult of
             {ok, done} -> ok;
             {error, MapError} ->
@@ -189,7 +190,7 @@ run() ->
         end,
 
         % Test segment_tag_get operation
-        AsyncBinReadRes = aspike_nif_test:segment_tag_get(Namespace, SetName, PK1, <<"profile2">>),
+        AsyncBinReadRes = aspike_nif_test:segment_tag_get(Namespace, SetName, PK4, <<"profile2">>),
         case AsyncBinReadRes of
             {ok, ReadMap} when is_map(ReadMap) ->
                 % Verify we can read the expected values
@@ -215,7 +216,7 @@ run() ->
                 io:format("ERROR: segment_tag_get returned unexpected result: ~p~n", [SegmentOther]),
                 halt(1)
         end,
-        io:format("segment_tag_get works fine ...~n", []),
+        io:format("segment_tag_get works fine.~n", []),
 
         io:format("All done, all works fine~n", []),
         halt()
