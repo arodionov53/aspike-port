@@ -40,7 +40,7 @@ test_cdt_put_get() ->
     assert_put_ok(PutRes),
 
     {ok, ReadData} = aspike_nif_test:cdt_get(?NAMESPACE, ?SET, PK),
-    ?assert(aspike_nif_test_utils:compare_cdt_data(Bins, ReadData)).
+    assert_cdt_bins_match(Bins, ReadData).
 
 test_cdt_delete_by_keys() ->
     PK = <<"eunit_user_del">>,
@@ -55,7 +55,7 @@ test_cdt_delete_by_keys() ->
 
     {ok, ReadData} = aspike_nif_test:cdt_get(?NAMESPACE, ?SET, PK),
     Expected = [{<<"profile">>, [<<"last">>, <<0, 1, 0, 3, 2>>, 20]}],
-    ?assert(aspike_nif_test_utils:compare_cdt_data(Expected, ReadData)).
+    assert_cdt_bins_match(Expected, ReadData).
 
 test_cdt_delete_by_keys_batch() ->
     PK1 = <<"eunit_batch_1">>,
@@ -71,10 +71,10 @@ test_cdt_delete_by_keys_batch() ->
     ?assertMatch({ok, _}, BatchRes),
 
     {ok, Read1} = aspike_nif_test:cdt_get(?NAMESPACE, ?SET, PK1),
-    ?assert(aspike_nif_test_utils:compare_cdt_data([{<<"data">>, [<<"b">>, <<0, 1, 0, 4, 2>>, 2]}], Read1)),
+    assert_cdt_bins_match([{<<"data">>, [<<"b">>, <<0, 1, 0, 4, 2>>, 2]}], Read1),
 
     {ok, Read2} = aspike_nif_test:cdt_get(?NAMESPACE, ?SET, PK2),
-    ?assert(aspike_nif_test_utils:compare_cdt_data([{<<"data">>, [<<"c">>, <<0, 1, 0, 4, 4>>, 4]}], Read2)).
+    assert_cdt_bins_match([{<<"data">>, [<<"c">>, <<0, 1, 0, 4, 4>>, 4]}], Read2).
 
 test_map_put_and_segment_tag_get() ->
     PK = <<"eunit_map_1">>,
@@ -112,3 +112,38 @@ test_key_exists() ->
 assert_put_ok({ok, "put"}) -> ok;
 assert_put_ok({ok, <<"put">>}) -> ok;
 assert_put_ok(Other) -> ?assertEqual({ok, <<"put">>}, Other).
+
+%% Converts read data flat list [Key, {Value, TTL, WriteTime}, ...] into a map
+%% #{Key => {Value, TTL}} (ignoring WriteTime which is added by the NIF)
+read_data_to_map(FlatList) ->
+    read_data_to_map(FlatList, #{}).
+
+read_data_to_map([], Acc) ->
+    Acc;
+read_data_to_map([Key, {Value, TTL, _WriteTime} | Rest], Acc) ->
+    read_data_to_map(Rest, Acc#{Key => {Value, TTL}});
+read_data_to_map([Key, {Value, TTL} | Rest], Acc) ->
+    read_data_to_map(Rest, Acc#{Key => {Value, TTL}}).
+
+%% Converts write data flat list [Key, Value, TTL, ...] into a map
+%% #{Key => {Value, TTL}}
+write_data_to_map(FlatList) ->
+    write_data_to_map(FlatList, #{}).
+
+write_data_to_map([], Acc) ->
+    Acc;
+write_data_to_map([Key, Value, TTL | Rest], Acc) ->
+    write_data_to_map(Rest, Acc#{Key => {Value, TTL}}).
+
+%% Asserts that CDT bins written match what was read back.
+%% Compares each bin by name, converts both sides to maps, and uses assertEqual.
+assert_cdt_bins_match(ExpectedBins, ActualBins) ->
+    ?assertEqual(length(ExpectedBins), length(ActualBins)),
+    SortedExpected = lists:sort(ExpectedBins),
+    SortedActual = lists:sort(ActualBins),
+    lists:foreach(fun({{BinName, ExpValues}, {ActualBinName, ActualValues}}) ->
+        ?assertEqual(BinName, ActualBinName),
+        ExpMap = write_data_to_map(ExpValues),
+        ActMap = read_data_to_map(ActualValues),
+        ?assertEqual(ExpMap, ActMap)
+    end, lists:zip(SortedExpected, SortedActual)).
