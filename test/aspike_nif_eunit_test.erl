@@ -138,7 +138,7 @@ test_multi_bin_write() ->
     Bins = [
         {<<"fcap_map">>, [<<"campaign.1001">>, <<0, 0, 0, 0, 0, 0, 0, 2>>, RTTL]},
         {<<"fcap_map">>, [<<"campaign.1002">>, <<0, 0, 0, 0, 0, 0, 0, 3>>, RTTL]},
-        {<<"_pending_fcap">>, [<<"campaign.2001">>, <<0, 0, 0, 0, 0, 0, 0, 4>>, RTTL]},
+        {<<"pending_fcap">>, [<<"campaign.2001">>, <<0, 0, 0, 0, 0, 0, 0, 4>>, RTTL]},
         {<<"pending_fcap">>, [<<"campaign.2002">>, <<0, 0, 0, 0, 0, 0, 0, 5>>, RTTL]},
         {<<"segments">>, [<<"segment.3001">>, <<0, 0, 0, 0, 0, 0, 0, 1>>, RTTL]},
         {<<"segments">>, [<<"segment.3002">>, <<0, 0, 0, 0, 0, 0, 0, 1>>, RTTL]}
