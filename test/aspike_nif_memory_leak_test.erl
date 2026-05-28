@@ -6,6 +6,9 @@
 
 -define(ASPIKE_DEFAULT_POLICY, {3, 250, 30000, 1000}).
 
+% The way to call this function is to do:
+% aspike_nif_test:memory_leak_test().
+
 run() ->
     aspike_nif_test:init(),
     init_tester(),

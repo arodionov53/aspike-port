@@ -3,9 +3,7 @@
 -export([
     init/0,
     connection_test/0,
-    quick_test/0,
     stress_test/0,
-    stress_test_loop/0,
     format_timestamp/0,
     memory_leak_test/0,
     get_api_mode/1,
@@ -107,16 +105,10 @@ connection_test() ->
             io:format("ERROR: cdt_put returned unexpected result: ~p~n", [InsertOther])
     end.
 
-quick_test() ->
-    aspike_nif_quick_test:run().
-
 stress_test() ->
-    stress_test_loop().
-
-stress_test_loop() ->
     io:format("Starting stress test run at ~s~n", [format_timestamp()]),
     try
-        aspike_nif_stress_test:run(),
+        aspike_nif_stress_test:run_all(),
         io:format("Stress test completed successfully at ~s~n", [format_timestamp()])
     catch
         Class:Reason:Stacktrace ->
@@ -125,7 +117,7 @@ stress_test_loop() ->
     end,
     io:format("Waiting 1 minute before next run...~n"),
     timer:sleep(60000), % Sleep for 1 minute (60,000 milliseconds)
-    stress_test_loop().
+    stress_test().
 
 format_timestamp() ->
     {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:local_time(),

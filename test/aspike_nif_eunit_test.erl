@@ -28,7 +28,8 @@ all_test_() ->
             {"get_absent_record_sync", fun test_get_absent_record_sync/0},
             {"get_absent_record_async", fun test_get_absent_record_async/0},
             {"multi_bin_write", fun test_multi_bin_write/0},
-            {"batch_insert_large_bin", fun test_batch_insert_large_bin/0}
+            {"batch_insert_large_bin", fun test_batch_insert_large_bin/0},
+            {"cdt_put_then_map_put_same_bin", fun test_cdt_put_then_map_put_same_bin/0}
         ]
     }.
 
@@ -209,6 +210,22 @@ test_batch_insert_large_bin() ->
     ?assertEqual(Value2, ActVal2),
     ?assertEqual(Value3, ActVal3),
     ?assertEqual(Value4, ActVal4).
+
+test_cdt_put_then_map_put_same_bin() ->
+    PK = <<"eunit_cdt_map_mix_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
+    BinName = <<"mixed_bin">>,
+    TTL = erlang:system_time(seconds) + 600,
+
+    Bins = [{BinName, [<<"key_from_cdt">>, <<1, 2, 3, 4>>, TTL]}],
+    PutRes = cdt_put(sync, ?NAMESPACE, ?SET, PK, Bins, 60),
+    assert_put_ok(PutRes),
+
+    Map = #{<<"key_from_map">> => <<"map_value">>},
+    MapRes = aspike_nif:map_put(?NAMESPACE, ?SET, PK, BinName, 5, Map),
+    ?assertMatch({ok, _}, MapRes),
+
+    GetRes = cdt_get(sync, ?NAMESPACE, ?SET, PK),
+    ?assertMatch({ok, _}, GetRes).
 
 test_cdt_put_all_together_sync_sync() ->
     test_cdt_put_all_together(sync, sync).

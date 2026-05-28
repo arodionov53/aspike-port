@@ -1,24 +1,31 @@
 -module(aspike_nif_stress_test).
 
 -export([
-    run/0
+    run_all/0
 ]).
 
 -define(ASPIKE_DEFAULT_POLICY, {3, 250, 30000, 1000}).
 
-run() ->
+% The way to call this code is to do:
+% aspike_nif_test:stress_test().
+
+run_all() ->
+    AmountOfOps = 10_000,
+
+    AmountsOfClients = [1, 2, 4, 8, 10, 12, 14, 20, 50, 100, 200, 250, 300],
+    %AmountsOfClients = [5],
+
+    run(cdt_put, AmountOfOps, AmountsOfClients),
+    run(cdt_get, AmountOfOps, AmountsOfClients),
+    run(cdt_delete_by_keys, AmountOfOps, AmountsOfClients),
+    run(cdt_delete_by_keys_batch, AmountOfOps, AmountsOfClients),
+    run(segment_tag_get, AmountOfOps, AmountsOfClients).
+
+run(Command, AmountOfOps, AmountsOfClients) ->
     aspike_nif_test:init(),
     init_tester(),
 
     TestNamePrefix = "local",
-    AmountOfOps = 10_000,
-    Command = cdt_put,
-    %Command = cdt_get,
-    %Command = cdt_delete_by_keys,
-    %Command = cdt_delete_by_keys_batch,
-    %Command = segment_tag_get,
-    AmountsOfClients = [1, 2, 4, 8, 10, 12, 14, 20, 50, 100, 200, 250, 300],
-    %AmountsOfClients = [5],
 
     Namespace = <<"test">>,
     SetName = <<"test_set">>,
