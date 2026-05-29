@@ -114,10 +114,10 @@ stress_test() ->
         Class:Reason:Stacktrace ->
             io:format("Stress test failed at ~s: ~p:~p~n~p~n",
                      [format_timestamp(), Class, Reason, Stacktrace])
-    end,
-    io:format("Waiting 1 minute before next run...~n"),
-    timer:sleep(60000), % Sleep for 1 minute (60,000 milliseconds)
-    stress_test().
+    end.
+%%    io:format("Waiting 1 minute before next run...~n"),
+%%    timer:sleep(60000), % Sleep for 1 minute (60,000 milliseconds)
+%%    stress_test().
 
 format_timestamp() ->
     {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:local_time(),

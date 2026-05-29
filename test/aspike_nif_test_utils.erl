@@ -241,8 +241,8 @@ collector_process_results(Stats) ->
         }
     end, {1_000_000_000, -1, 0, 0, 0, 0}, ClientIds),
     Avg = Total / erlang:length(ClientIds),
-    io:format("Amount of parallel clients: ~p~n", [AmountOfClients]),
-    io:format("Amount of operations per client: ~p~n", [OpsPerClient]),
+    %io:format("Amount of parallel clients: ~p~n", [AmountOfClients]),
+    %io:format("Amount of operations per client: ~p~n", [OpsPerClient]),
     io:format("Min: ~p µs, Max: ~p µs, Avg: ~p µs~n", [Min, Max, Avg]),
     PercentOfFailed = round((ErrorsMet / (OpsPerClient * AmountOfClients)) * 100),
     io:format("Total successful ops: ~p, Total failed ops: ~p (~p % from total)~n", [OpsDone, ErrorsMet, PercentOfFailed]),

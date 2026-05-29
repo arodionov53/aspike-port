@@ -224,8 +224,15 @@ test_cdt_put_then_map_put_same_bin() ->
     MapRes = aspike_nif:map_put(?NAMESPACE, ?SET, PK, BinName, 5, Map),
     ?assertMatch({ok, _}, MapRes),
 
-    GetRes = cdt_get(sync, ?NAMESPACE, ?SET, PK),
-    ?assertMatch({ok, _}, GetRes).
+    {ok, ReadData} = cdt_get(sync, ?NAMESPACE, ?SET, PK),
+    {BinName, BinValues} = lists:keyfind(BinName, 1, ReadData),
+    ?assert(is_list(BinValues)),
+    ?assertEqual(2, length(BinValues)),
+    [Key, Value] = BinValues,
+    ?assertEqual(<<"key_from_map">>, Key),
+    % map_put values are returned as hex-encoded strings by cdt_get
+    % because the value is AS_BYTES, not a nested AS_MAP with {value, ttl, wt}
+    ?assert(is_list(Value)).
 
 test_cdt_put_all_together_sync_sync() ->
     test_cdt_put_all_together(sync, sync).
