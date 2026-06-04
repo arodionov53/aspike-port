@@ -88,15 +88,15 @@ bool check_connected (ErlNifEnv* env, ERL_NIF_TERM* err) {
 }
 
 // Get target node for a key using proper Aerospike partition routing
-string* get_target_node_for_key(const char* namespace_name, const char* set, const char* key_str) {
+string get_target_node_for_key(const char* namespace_name, const char* set, const char* key_str) {
     if (!statistics_enabled_flag || !namespace_name || !key_str || !is_connected_flag || !as.cluster) {
-        return nullptr;
+        return {};
     }
 
     // Use the cluster nodes API which handles reference counting internally
     as_nodes* nodes = as_nodes_reserve(as.cluster);
     if (!nodes) {
-        return nullptr;
+        return {};
     }
 
     // Create a key and compute its digest
@@ -107,7 +107,7 @@ string* get_target_node_for_key(const char* namespace_name, const char* set, con
     if (as_key_set_digest(&err, &key) != AEROSPIKE_OK) {
         as_key_destroy(&key);
         as_nodes_release(nodes);
-        return nullptr;
+        return {};
     }
 
     // Get the digest and compute partition ID
@@ -115,7 +115,7 @@ string* get_target_node_for_key(const char* namespace_name, const char* set, con
     if (!digest) {
         as_key_destroy(&key);
         as_nodes_release(nodes);
-        return nullptr;
+        return {};
     }
 
     // Get partition table for this namespace
@@ -133,7 +133,7 @@ string* get_target_node_for_key(const char* namespace_name, const char* set, con
     if (!table) {
         as_key_destroy(&key);
         as_nodes_release(nodes);
-        return nullptr;
+        return {};
     }
 
     // Calculate partition ID
@@ -148,10 +148,10 @@ string* get_target_node_for_key(const char* namespace_name, const char* set, con
                                                  nullptr, AS_POLICY_REPLICA_MASTER,
                                                  1, &replica_index);
 
-    string* node_name = nullptr;
+    string node_name;
     if (target_node && strlen(target_node->name) > 0) {
-        // make a copy of node name because the pointer to it may be deleted
-        node_name = new string((char *)target_node->name);
+        // copy node name while nodes reference is held, as the node may be destroyed after release
+        node_name = target_node->name;
     }
 
     as_key_destroy(&key);
@@ -161,11 +161,11 @@ string* get_target_node_for_key(const char* namespace_name, const char* set, con
 }
 
 // Get or create stats for a node (thread-safe with reader-writer lock)
-shared_ptr<NodeConnectionStats> get_or_create_node_stats(string* node_name) {
+shared_ptr<NodeConnectionStats> get_or_create_node_stats(const string& node_name) {
     // Fast path: shared lock for reading (multiple threads can access simultaneously)
     {
         shared_lock<shared_mutex> read_lock(node_stats_rw_mutex);
-        auto it = node_stats_map.find(*node_name);
+        auto it = node_stats_map.find(node_name);
         if (it != node_stats_map.end()) {
             return it->second;
         }
@@ -175,18 +175,14 @@ shared_ptr<NodeConnectionStats> get_or_create_node_stats(string* node_name) {
     lock_guard<shared_mutex> write_lock(node_stats_rw_mutex);
 
     // Double-check: another thread might have created it while we waited for the lock
-    auto it2 = node_stats_map.find(*node_name);
+    auto it2 = node_stats_map.find(node_name);
     if (it2 != node_stats_map.end()) {
         return it2->second;
     }
 
     // Create new stats entry
     auto stats = make_shared<NodeConnectionStats>();
-    // create a string copy because this might be gone immediately
-    // it can be seen as a memory leak if the node_name are not unique,
-    // but fortunately (seem like) the node names are static and not changed.
-    string * copy = new string(*node_name);
-    node_stats_map[*copy] = stats;
+    node_stats_map[node_name] = stats;
     return stats;
 }
 

@@ -38,38 +38,6 @@
 
 using namespace std;
 
-void increment_async_connection_counter_with_node(string * node_name) {
-    if (!node_name) return;
-    auto node_stats = get_or_create_node_stats(node_name);
-
-    // Increment both global and per-node counters
-    async_current_counter.fetch_add(1);
-    node_stats->async_current.fetch_add(1);
-
-    auto global_value = async_current_counter.load();
-    auto node_value = node_stats->async_current.load();
-    auto now = unix_ts();
-
-    // Update global peaks
-    if (async_peak_counter.load() < global_value || async_peak_ttl_counter.load() < now) {
-        async_peak_counter.store(global_value);
-        async_peak_ttl_counter.store(now + 15);
-    }
-
-    // Update node-specific peaks
-    if (node_stats->async_peak.load() < node_value || node_stats->async_peak_ttl.load() < now) {
-        node_stats->async_peak.store(node_value);
-        node_stats->async_peak_ttl.store(now + 15);
-    }
-}
-
-void decrement_async_connection_counter_with_node(string* node_name) {
-    if (!node_name) return;
-    async_current_counter.fetch_sub(1);
-    auto node_stats = get_or_create_node_stats(node_name);
-    node_stats->async_current.fetch_sub(1);
-}
-
 // Async callback structure for async operations
 struct callback_data {
     // 'pi_env' means Process Independent Environment, and in the async functions below
@@ -78,11 +46,12 @@ struct callback_data {
     ErlNifEnv* erl_pi_env = nullptr;
     ErlNifPid caller_pid;
     ERL_NIF_TERM ref;
-    vector<as_arraylist>* arraylist_vector = nullptr;
-    vector<as_operations>* operations_vector = nullptr;
-    as_batch_records* batch_records = nullptr;
-    string* node_name = nullptr;
-    string* bin_name = nullptr;
+    vector<as_arraylist> arraylist_vector;
+    vector<as_operations> operations_vector;
+    as_batch_records batch_records = {};
+    bool batch_records_initialized = false;
+    string node_name;
+    string bin_name;
 
     callback_data(ErlNifEnv* caller_pd_env, const ERL_NIF_TERM ref_to_save) {
         enif_self(caller_pd_env, &caller_pid);
@@ -91,37 +60,53 @@ struct callback_data {
         ref = enif_make_copy(erl_pi_env, ref_to_save);
     }
 
+    callback_data(ErlNifEnv* caller_pd_env, const ERL_NIF_TERM ref_to_save,
+        const string& name_space, const string& set_name, const string& record_name)
+        : callback_data(caller_pd_env, ref_to_save) {
+        if (!statistics_enabled()) return;
+        node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
+        if (node_name.empty()) return;
+        auto node_stats = get_or_create_node_stats(node_name);
+
+        // Increment both global and per-node counters
+        async_current_counter.fetch_add(1);
+        node_stats->async_current.fetch_add(1);
+
+        auto global_value = async_current_counter.load();
+        auto node_value = node_stats->async_current.load();
+        auto now = unix_ts();
+
+        // Update global peaks
+        if (async_peak_counter.load() < global_value || async_peak_ttl_counter.load() < now) {
+            async_peak_counter.store(global_value);
+            async_peak_ttl_counter.store(now + 15);
+        }
+
+        // Update node-specific peaks
+        if (node_stats->async_peak.load() < node_value || node_stats->async_peak_ttl.load() < now) {
+            node_stats->async_peak.store(node_value);
+            node_stats->async_peak_ttl.store(now + 15);
+        }
+    }
+
     ~callback_data() {
-        if (batch_records) {
-            as_batch_records_destroy(batch_records);
-            delete batch_records;
-            batch_records = nullptr;
+        if (!node_name.empty() && statistics_enabled()) {
+            async_current_counter.fetch_sub(1);
+            auto node_stats = get_or_create_node_stats(node_name);
+            node_stats->async_current.fetch_sub(1);
         }
-        if (arraylist_vector) {
-            for (auto& arraylist : *arraylist_vector) {
-                as_arraylist_destroy(&arraylist);
-            }
-            delete arraylist_vector;
-            arraylist_vector = nullptr;
+        if (batch_records_initialized) {
+            as_batch_records_destroy(&batch_records);
         }
-        if (operations_vector) {
-            for (auto& operations : *operations_vector) {
-                as_operations_destroy(&operations);
-            }
-            delete operations_vector;
-            operations_vector = nullptr;
+        for (auto& arraylist : arraylist_vector) {
+            as_arraylist_destroy(&arraylist);
+        }
+        for (auto& operations : operations_vector) {
+            as_operations_destroy(&operations);
         }
         if (erl_pi_env) {
             enif_free_env(erl_pi_env);
             erl_pi_env = nullptr;
-        }
-        if (node_name) {
-            delete node_name;
-            node_name = nullptr;
-        }
-        if (bin_name) {
-            delete bin_name;
-            bin_name = nullptr;
         }
     }
 };
@@ -130,10 +115,6 @@ static void cdt_put_async_callback(as_error* err, as_record* record, void* udata
     callback_data* cb_data = (callback_data*)udata;
 
     ERL_NIF_TERM result_msg;
-
-    if (cb_data->node_name && statistics_enabled()) {
-        decrement_async_connection_counter_with_node(cb_data->node_name);
-    }
 
     if (err) {
         ERL_NIF_TERM error_msg;
@@ -264,21 +245,12 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
         operations.ttl = -2;
     }
 
-    string * node_name = nullptr;
-    if (statistics_enabled()) {
-        node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        if (node_name) {
-            increment_async_connection_counter_with_node(node_name);
-        }
-    }
-
     as_key record_key;
     as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
 
     vector<as_cdt_ctx*> cdt_contexts;
 
-    auto cb_data = new callback_data(env, argv[0]);
-    cb_data->node_name = node_name;
+    auto cb_data = new callback_data(env, argv[0], name_space, set_name, record_name);
 
     as_map_policy put_mode;
     as_map_policy_set(&put_mode, AS_MAP_KEY_ORDERED, AS_MAP_UPDATE);
@@ -417,9 +389,6 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
-        if (statistics_enabled()) {
-            decrement_async_connection_counter_with_node(node_name);
-        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;
@@ -444,10 +413,6 @@ static void cdt_get_async_callback(as_error* err, as_record* record, void* udata
     callback_data* cb_data = (callback_data*)udata;
 
     ERL_NIF_TERM result_msg;
-
-    if (cb_data->node_name && statistics_enabled()) {
-        decrement_async_connection_counter_with_node(cb_data->node_name);
-    }
 
     if (err) {
         ERL_NIF_TERM error_msg;
@@ -520,19 +485,10 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     ERL_NIF_TERM return_data;
     if (check_connected(env, &return_data)) return return_data;
 
-    string * node_name = nullptr;
-    if (statistics_enabled()) {
-        node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        if (node_name) {
-            increment_async_connection_counter_with_node(node_name);
-        }
-    }
-
     as_key record_key;
     as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    auto cb_data = new callback_data(env, argv[0]);
-    cb_data->node_name = node_name;
+    auto cb_data = new callback_data(env, argv[0], name_space, set_name, record_name);
 
     as_error err;
     as_status status = aerospike_key_get_async(as, &err, &policy, &record_key, cdt_get_async_callback, cb_data, NULL, NULL);
@@ -540,9 +496,6 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
-        if (statistics_enabled()) {
-            decrement_async_connection_counter_with_node(node_name);
-        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;
@@ -567,10 +520,6 @@ static void cdt_delete_by_keys_async_callback(as_error* err, as_record* record, 
     callback_data* cb_data = (callback_data*)udata;
 
     ERL_NIF_TERM result_msg;
-
-    if (cb_data->node_name && statistics_enabled()) {
-        decrement_async_connection_counter_with_node(cb_data->node_name);
-    }
 
     if (err) {
         ERL_NIF_TERM error_msg;
@@ -634,14 +583,6 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
     string record_name((const char*)erl_record_name.data, erl_record_name.size);
     string bin_name((const char*)erl_bin_name.data, erl_bin_name.size);
 
-    string * node_name = nullptr;
-    if (statistics_enabled()) {
-        node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        if (node_name) {
-            increment_async_connection_counter_with_node(node_name);
-        }
-    }
-
     as_arraylist remove_list;
     as_arraylist_init(&remove_list, length, length);
 
@@ -665,7 +606,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
         }
         if (enif_inspect_binary(env, head, &subkey_term)) {
             // we have to allocate memory for subkey_str because function subkey_term.data
-            // may be not a null-terminated string, and passing subkey_term.data to 
+            // may be not a null-terminated string, and passing subkey_term.data to
             // as_arraylist_append_str() might be a bad idea.
             subkey_str.assign((const char*)subkey_term.data, subkey_term.size);
             as_arraylist_append_str(&remove_list, (char*)subkey_str.c_str());
@@ -679,8 +620,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
         as_operations_add_map_remove_by_key_list(&operations, bin_name.c_str(), (as_list*)&remove_list, AS_MAP_RETURN_NONE);
     }
 
-    auto cb_data = new callback_data(env, argv[0]);
-    cb_data->node_name = node_name;
+    auto cb_data = new callback_data(env, argv[0], name_space, set_name, record_name);
 
     as_error err;
     as_status status = aerospike_key_operate_async(as, &err, NULL, &record_key, &operations, cdt_delete_by_keys_async_callback, cb_data, NULL, NULL);
@@ -690,9 +630,6 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
-        if (statistics_enabled()) {
-            decrement_async_connection_counter_with_node(node_name);
-        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;
@@ -822,12 +759,13 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_batch_async(ErlNifEnv* env, int argc,
 
     vector<string> pk_names(tuples_amount);
     vector<as_batch_write_record*> batch_writes(tuples_amount);
-    auto delete_ops = new vector<as_operations>(tuples_amount);
-    auto map_keys = new vector<as_arraylist>(tuples_amount);
     string map_key_name;
 
-    auto recs = new as_batch_records();
-    as_batch_records_init(recs, tuples_amount);
+    auto cb_data = new callback_data(env, argv[0]);
+    cb_data->operations_vector.resize(tuples_amount);
+    cb_data->arraylist_vector.resize(tuples_amount);
+    as_batch_records_init(&cb_data->batch_records, tuples_amount);
+    cb_data->batch_records_initialized = true;
 
     erl_current_list = erl_tuples;
     for (uint tuple_index = 0; tuple_index < tuples_amount; tuple_index++) {
@@ -840,40 +778,35 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_batch_async(ErlNifEnv* env, int argc,
         enif_is_list(env, erl_tuple[1]);
         enif_get_list_length(env, erl_tuple[1], &map_keys_amount);
 
-        batch_writes[tuple_index] = as_batch_write_reserve(recs);
+        batch_writes[tuple_index] = as_batch_write_reserve(&cb_data->batch_records);
         as_key_init_str(&(batch_writes[tuple_index]->key), name_space.c_str(), set_name.c_str(), pk_names[tuple_index].c_str());
 
-        as_arraylist_init(&((*map_keys)[tuple_index]), map_keys_amount, map_keys_amount);
+        as_arraylist_init(&(cb_data->arraylist_vector[tuple_index]), map_keys_amount, map_keys_amount);
 
         erl_map_keys = erl_tuple[1];
         for (uint k = 0; k < map_keys_amount; k++) {
-            
+
             enif_get_list_cell(env, erl_map_keys, &erl_map_keys_head, &erl_map_keys_tail);
             enif_inspect_binary(env, erl_map_keys_head, &erl_map_key_name);
 
             map_key_name.assign((const char*)erl_map_key_name.data, erl_map_key_name.size);
             // we can use stack variable here because as_arraylist_append_str will strdup(map_key_name)
             // and free the string automatically once the map_keys[tuple_index] is destroyed
-            as_arraylist_append_str(&((*map_keys)[tuple_index]), (char*)map_key_name.c_str());
+            as_arraylist_append_str(&(cb_data->arraylist_vector[tuple_index]), (char*)map_key_name.c_str());
 
             erl_map_keys = erl_map_keys_tail;
         }
-        
-        as_operations_init(&((*delete_ops)[tuple_index]), 1);
-        as_operations_add_map_remove_by_key_list(&((*delete_ops)[tuple_index]), bin_name.c_str(), (as_list*)&((*map_keys)[tuple_index]), AS_MAP_RETURN_NONE);
-        (*delete_ops)[tuple_index].ttl = AS_RECORD_NO_CHANGE_TTL;
-        batch_writes[tuple_index]->ops = &((*delete_ops)[tuple_index]);
+
+        as_operations_init(&(cb_data->operations_vector[tuple_index]), 1);
+        as_operations_add_map_remove_by_key_list(&(cb_data->operations_vector[tuple_index]), bin_name.c_str(), (as_list*)&(cb_data->arraylist_vector[tuple_index]), AS_MAP_RETURN_NONE);
+        cb_data->operations_vector[tuple_index].ttl = AS_RECORD_NO_CHANGE_TTL;
+        batch_writes[tuple_index]->ops = &(cb_data->operations_vector[tuple_index]);
 
         erl_current_list = erl_tail;
     }
 
-    auto cb_data = new callback_data(env, argv[0]);
-    cb_data->batch_records = recs;
-    cb_data->arraylist_vector = map_keys;
-    cb_data->operations_vector = delete_ops;
-
     as_error err;
-    as_status status = aerospike_batch_write_async(as, &err, nullptr, recs, cdt_delete_by_keys_batch_async_callback, cb_data, nullptr);
+    as_status status = aerospike_batch_write_async(as, &err, nullptr, &cb_data->batch_records, cdt_delete_by_keys_batch_async_callback, cb_data, nullptr);
 
     if (status != AEROSPIKE_OK) {
         delete cb_data;
@@ -907,10 +840,6 @@ void segment_tag_get_async_callback(as_error* err, as_record* records, void* uda
 
     ERL_NIF_TERM result_msg;
 
-    if (cb_data->node_name && statistics_enabled()) {
-        decrement_async_connection_counter_with_node(cb_data->node_name);
-    }
-
     if (err) {
         ERL_NIF_TERM error_msg;
 
@@ -934,7 +863,7 @@ void segment_tag_get_async_callback(as_error* err, as_record* records, void* uda
 
         try {
             if (records == NULL) throw "NULL p_rec";
-            as_bin_value* bin = as_record_get(records, cb_data->bin_name->c_str());
+            as_bin_value* bin = as_record_get(records, cb_data->bin_name.c_str());
             if (bin == NULL) {
                 throw "NULL val - internal error";
             }
@@ -1021,25 +950,14 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
     string name_space((const char*)erl_ns.data, erl_ns.size);
     string set_name((const char*)erl_set_name.data, erl_set_name.size);
     string record_name((const char*)erl_record_name.data, erl_record_name.size);
-    auto bin_name = new string((const char*)erl_bin_name.data, erl_bin_name.size);
-
-    string * node_name = nullptr;
-    if (statistics_enabled()) {
-        node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
-        if (node_name) {
-            increment_async_connection_counter_with_node(node_name);
-        }
-    }
-
     as_key record_key;
     as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
 
-    const char* bins_to_read[] = {(*bin_name).c_str(), NULL};
-
-    auto cb_data = new callback_data(env, argv[0]);
-    cb_data->node_name = node_name;
+    auto cb_data = new callback_data(env, argv[0], name_space, set_name, record_name);
     // we save bin_name because we'll need it in the segment_tag_get_async_callback()
-    cb_data->bin_name = bin_name;
+    cb_data->bin_name.assign((const char*)erl_bin_name.data, erl_bin_name.size);
+
+    const char* bins_to_read[] = {cb_data->bin_name.c_str(), NULL};
 
     as_error err;
     as_status status = aerospike_key_select_async(as, &err, nullptr, &record_key, bins_to_read, segment_tag_get_async_callback, cb_data, nullptr, nullptr);
@@ -1047,9 +965,6 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
     as_key_destroy(&record_key);
 
     if (status != AEROSPIKE_OK) {
-        if (statistics_enabled()) {
-            decrement_async_connection_counter_with_node(node_name);
-        }
         delete cb_data;
 
         ERL_NIF_TERM error_msg;

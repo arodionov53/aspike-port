@@ -48,8 +48,8 @@ extern atomic<uint32_t> async_current_counter;
 extern atomic<uint32_t> async_peak_counter;
 extern atomic<int64_t> async_peak_ttl_counter;
 
-extern string* get_target_node_for_key (const char* namespace_name, const char* set, const char* key_str);
-extern shared_ptr<NodeConnectionStats> get_or_create_node_stats (string* node_name);
+extern string get_target_node_for_key (const char* namespace_name, const char* set, const char* key_str);
+extern shared_ptr<NodeConnectionStats> get_or_create_node_stats (const string& node_name);
 
 extern aerospike* get_aerospike ();
 extern bool statistics_enabled ();
