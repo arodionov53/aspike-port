@@ -179,9 +179,6 @@ int call_host_info(const char *buf, int *index, int arity, int fd_out);
 
 int call_help(const char *buf, int *index, int arity, int fd_out);
 
-int call_foo(const char *buf, int *index, int arity, int fd_out);
-int call_bar(const char *buf, int *index, int arity, int fd_out);
-
 int call_port_cdt_get(const char *buf, int *index, int arity, int fd_out);
 int call_port_cdt_put(const char *buf, int *index, int arity, int fd_out);
 int call_port_cdt_expire(const char *buf, int *index, int arity, int fd_out);
@@ -337,13 +334,6 @@ int function_call(const char *buf, int *index, int arity, int fd_out) {
     }
     if (check_name(fname, "binary_remove", arity, 6)) {
         return call_port_binary_remove(buf, index, arity, fd_out);
-    }
-
-    if (check_name(fname, "foo", arity, 2)) {
-        return call_foo(buf, index, arity, fd_out);
-    }
-    if (check_name(fname, "bar", arity, 2)) {
-        return call_bar(buf, index, arity, fd_out);
     }
 
     fail(fname, fd_out);
@@ -1068,8 +1058,8 @@ static void format_value_out(ei_x_buff *p_res_buf, as_val_t type, as_bin_value *
                 as_orderedmap_iterator_init(&iti_int, vmap);
                 long ttlsm = 0;
                 long writetime = 0;
-                as_string *vnt_s;
-                as_bytes *vnt_b;
+                as_string *vnt_s = 0;
+                as_bytes *vnt_b = 0;
                 uint vnt_type = 0;
                 while ( as_orderedmap_iterator_has_next(&iti_int) ) {
                     const as_val* valsm = as_orderedmap_iterator_next(&iti_int);

@@ -1,29 +1,49 @@
-## Build
+## Aerospike setup
 
-You need the aerospike client installed on your machine, which requires
-two client libraries:
+Obviously you need a running instance of Aerospike. Currently, in the production we are running version 6, but for
+development purposes it's OK to go with version 7. Version 8 was found having many differences from 7 and is
+not yet tested. CE (Community Edition) version is fine for development. It's recommended to use docker
+image to run Aerospike, but you can choose any. For reference, you can follow guides on this page:
+ * https://aerospike.com/download/server/community/
+ * https://hub.docker.com/r/aerospike/aerospike-server
 
-* libev
-* aerospike-client-c-libev
-
-### For Ubuntu/Debian:
+Run next command to download and run aerospike docker image:
 ```bash
-wget https://download.aerospike.com/artifacts/aerospike-client-c/6.5.1/aerospike-client-c-libev_6.5.1_debian11_x86_64.tgz
-tar xvf aerospike-client-c-libev_6.5.1_debian11_x86_64.tgz
-cd aerospike-client-c-libev_6.5.1_debian11_x86_64
-dpkg -i aerospike-client-c-libev-devel_6.5.1-debian11_amd64.deb aerospike-client-c-libev_6.5.1-debian11_amd64.deb
+docker run -d --rm --name aerospike_test --ulimit nofile=65536:65536 -p 3000:3000 -p 3001:3001 -p 3002:3002 -p 3003:3003 aerospike:ce-7.1.0.0
+```
+This will download and store image and create a container under 'aerospike_test' name. Later you can reference this container with commands like:
+```bash
+docker stop aerospike_test
+docker start aerospike_test
+docker logs aerospike_test # to get logs from Aerospike
+docker exec -ti aerospike_test /bin/bash # to get shell inside container
 ```
 
-### For Arch Linux:
+If you need to talk to aerospike in AQL you can run the aql utility:
 ```bash
-$ pacman -S libev
-$ pacaur -S aerospike-client-c-libev
+docker run --rm -ti aerospike/aerospike-tools:latest aql -h 127.0.0.1
+```
+and there you can run sample queries like
+```sql
+SELECT * FROM test.rtb_setname
+```
+to see all records from that namespace/set, or
+```sql
+SELECT * FROM test.rtb_setname WHERE PK = 'user_defined_PK'
+```
+to see specific record that namespace/set.
+
+If you need to run AS Admin (ASADM) you can run next command:
+```bash
+docker run --rm -ti aerospike/aerospike-tools:latest asadm -h 127.0.0.1
 ```
 
-after installation, run rebar3:
+## Building aspike-port
+
+Just run make:
 
 ```bash
-$ make
+$ rebar3 compile
 ```
 
 ## Port implementation (disabled)
@@ -49,46 +69,58 @@ To re-enable the Port implementation:
    	$(MAKE) -C nif
    ```
 
-## Run perf tests
+## Tests
 
-To start the Aerospike client, run these commands in erlang shell
-
-```erlang
-application:set_env(aspike_port, host, "Aerospike-discovery-node-ip").
-application:set_env(aspike_port, psw, "Aerospike-password").
-application:set_env(aspike_port, port, 3000).
-application:set_env(aspike_port, user, "Aerospike-username").
-aspike_nif:host_add().
-aspike_nif:connect().
+```bash
+make test
 ```
+
+### Run perf tests
+
+In general, you can cover all major functions used in RTB by doing:
+
+```bash
+make stress_test
+```
+This runs certain amount of operations with different amount of parallel clients and measures the operation times.
+Then it outputs the results to the console.
+You might want to edit function `aspike_nif_stress_test:run_all()` to define some parameters. The main are:
+- **AmountOfOps** - amount operations each client will do. Not all clients combined, but each client.
+- **AmountsOfClients** - number of clients to run in parallel. For instance, [5, 10] means first 5 clients will query database in parallel, and after they finish the same will be repeated with 10 parallel clients.
+
+### Memory leak test
+You can run next command:
+```bash
+make memory_leak_test
+```
+Then just monitor the memory consumption while test is running.
 
 ### Single process tests
 
 To run a single producer process:
 ```erlang
-aspike_nif_perf:sp_insert(<<"global-store">>, <<"rtb-gateway-fcap-users">>, 1_000_000, 3600, 0, 1_000_000_000_000, 0, 0).
+aspike_nif_test:sp_insert(<<"test">>, <<"rtb_setname">>, 1_000_000, 3600, 0, 1_000_000_000_000, 0, 0).
 ```
-it will insert 1_000_000 keys to namespace=global-store, set=rtb-gateway-fcap-users. Data TTL=3600 seconds. Delay between operations = 0ms. Initial key value = 1_000_000_000_000. (key will be 1_000_001_000_000 ... 1_000_001_999_999).
+it will insert 1_000_000 keys to namespace=test, set=rtb_setname. Data TTL=3600 seconds. Delay between operations = 0ms. Initial key value = 1_000_000_000_000. (key will be 1_000_001_000_000 ... 1_000_001_999_999).
 Function will return: {Number_of_success_operations, Number_of_errors}.
 
 To run a single consumer process:
 ```erlang
-aspike_nif_perf:sp_read(<<"global-store">>, <<"rtb-gateway-fcap-users">>, 1_000_000, 0, 1_000_000_000_000, 0, 0, 0).
+aspike_nif_test:sp_read(<<"test">>, <<"rtb_setname">>, 1_000_000, 0, 1_000_000_000_000, 0, 0, 0).
 ```
-it will read from namespace=global-store, set=rtb-gateway-fcap-users. Delay between operations = 0ms. Initial key value = 1_000_000_000_000. (key will be 1_000_001_000_000 ... 1_000_001_999_999).
+it will read from namespace=test, set=rtb_setname. Delay between operations = 0ms. Initial key value = 1_000_000_000_000. (key will be 1_000_001_000_000 ... 1_000_001_999_999).
 
 To get the raw stats:
 ```erlang
-aspike_nif_perf:dump_stats().
+aspike_nif_test:dump_stats().
 ```
 it will produce 2 files: /tmp/read_stats.txt and /tmp/insert_stats.txt
 
 ### Multi-process tests
 
 ```erlang
-aspike_nif_perf:mp_insert(10, 1_000_000, 0).
-aspike_nif_perf:mp_reads(20, 1_000_000, 0).
+aspike_nif_test:mp_insert(40, 1_000_000, 0).
+aspike_nif_test:mp_reads(40, 1_000_000, 0).
 ```
-
 It will run 10 concurrent insert processes, each will insert 1000000 keys, with 0ms delay
-and 20 concurrent read processes, each will read 1000000 keys with 0ms delay
+and 20 concurrent read processes, each will read 1000000 keys with 0ms delay.

@@ -3,6 +3,7 @@
 -module(aspike_nif).
 
 -include("../include/defines.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -export([
     host_add/0,
@@ -12,9 +13,13 @@
     host_info/1,
     host_info/3,
     host_list/0,
+    set_connections_per_node/4,
+    set_event_loops_amount/1,
+    enable_statistic_collection/1,
     connect/0,
     connect/2,
     is_connected/0,
+    get_connections_stats/0,
     key_exists/0,
     key_exists/1,
     key_exists/3,
@@ -47,32 +52,37 @@
     help/0,
     help/1,
     nif_help/1,
-    b/0,
     % --------------------------------------
     a_key_put/0,
     a_key_put/1,
     a_key_put/6,
-    foo/1,
-    bar/1,
     binary_put/5,
     binary_remove/5,
     binary_get/3,
-    cdt_get/4,
-    cdt_get/3,
+    map_put/6,
     cdt_expire/4,
-    cdt_delete_by_keys/5,
-    cdt_delete_by_keys_batch/4,
-    cdt_put/5,
-    cdt_put/6,
-    segment_tag_get/4
+    cdt_delete_by_keys_sync/5,
+    cdt_delete_by_keys_async/6,
+    cdt_delete_by_keys_batch_sync/4,
+    cdt_delete_by_keys_batch_async/5,
+    cdt_put_sync/6,
+    cdt_put_async/7,
+    cdt_get_sync/4,
+    cdt_get_async/5,
+    segment_tag_get_sync/4,
+    segment_tag_get_async/5
 ]).
 
 -nifs([
     nif_host_add/2,
     host_clear/0,
     nif_host_list/0,
+    set_connections_per_node/4,
+    set_event_loops_amount/1,
+    enable_statistic_collection/1,
     connect/2,
     is_connected/0,
+    get_connections_stats/0,
     key_exists/3,
     key_inc/4,
     key_get/3,
@@ -88,17 +98,21 @@
     nif_host_info/3,
     % --------------------------------------
     a_key_put/6,
-    foo/1,
-    bar/1,
     binary_put/5,
     binary_remove/5,
     binary_get/3,
-    cdt_get/4,
+    map_put/6,
     cdt_expire/4,
-    cdt_delete_by_keys/5,
-    cdt_delete_by_keys_batch/4,
-    cdt_put/6,
-    segment_tag_get/4
+    cdt_delete_by_keys_sync/5,
+    cdt_delete_by_keys_async/6,
+    cdt_delete_by_keys_batch_sync/4,
+    cdt_delete_by_keys_batch_async/5,
+    cdt_put_sync/6,
+    cdt_put_async/7,
+    cdt_get_sync/4,
+    cdt_get_async/5,
+    segment_tag_get_sync/4,
+    segment_tag_get_async/5
 ]).
 
 % -------------------------------------------------------------------------------
@@ -106,6 +120,12 @@
 -on_load(init/0).
 
 -define(LIBNAME, ?MODULE).
+
+% Type definitions for per-node connection stats
+-type sync_current() :: non_neg_integer().
+-type sync_peak() :: non_neg_integer().
+-type async_current() :: non_neg_integer().
+-type async_peak() :: non_neg_integer().
 
 % -------------------------------------------------------------------------------
 
@@ -159,6 +179,19 @@ host_list() ->
 nif_host_list() ->
     not_loaded(?LINE).
 
+-spec set_connections_per_node(integer(), integer(), integer(), integer()) -> {ok, string()} | {error, string()}.
+set_connections_per_node(_SyncMinConn, _SyncMaxConn, _AsyncMinConn, _AsyncMaxConn) ->
+    not_loaded(?LINE).
+
+-spec set_event_loops_amount(integer()) -> {ok, string()} | {error, string()}.
+set_event_loops_amount(_EventLoopsAmount) ->
+    not_loaded(?LINE).
+
+% send number 1 into this function if you want to enable it, and any other number to disable
+-spec enable_statistic_collection(integer()) -> {ok, string()} | {error, string()}.
+enable_statistic_collection(_Enabled) ->
+    not_loaded(?LINE).
+
 -spec connect() -> {ok, connected} | {error, string()}.
 connect() ->
     connect(?DEFAULT_USER, ?DEFAULT_PSW).
@@ -172,13 +205,22 @@ connect(_, _) ->
 is_connected() ->
     not_loaded(?LINE).
 
+-spec get_connections_stats() ->
+    {ok, {
+        {sync_current(), sync_peak(), non_neg_integer(), async_current(), async_peak(), non_neg_integer()},
+        {async_current(), async_peak()}
+    }}
+    | {error, string()}.
+get_connections_stats() ->
+    not_loaded(?LINE).
+
 key_exists() ->
     key_exists(?DEFAULT_KEY).
 
 key_exists(Key) ->
     key_exists(?DEFAULT_NAMESPACE, ?DEFAULT_SET, Key).
 
-% @doc Checks if Key exists in Namesplace Set
+% @doc Checks if Key exists in Namespace Set
 -spec key_exists(string(), string(), string()) -> {ok, string()} | {error, string()}.
 key_exists(Namespace, Set, Key) when is_list(Namespace), is_list(Set), is_list(Key) ->
     not_loaded(?LINE).
@@ -222,17 +264,29 @@ key_put(Namespace, Set, Key, Lst) when
 binary_put(_Namespace, _Set, _Key, _BinList, _TTL) ->
     not_loaded(?LINE).
 
-% {MaxRetries, SleepBetweenRetries, SocketTimeout, TotalTimeout}  timeouts in milliseconds
-cdt_put(Namespace, Set, Key, BinList, TTL) ->
-    cdt_put(Namespace, Set, Key, BinList, TTL, {0, 0, 30000, 1000}).
--spec cdt_put(binary(), binary(), binary(), 
+-spec cdt_put_sync(binary(), binary(), binary(),
         [{binary(), binary()|integer()|[integer()]}], integer(), 
-        {integer(), integer(), integer(), integer()}) -> 
+        {integer(), integer(), integer(), integer()}) ->
             {ok, string()} | {error, string()}.
-cdt_put(_Namespace, _Set, _Key, _BinList, _TTL, _Policy) ->
+cdt_put_sync(_Namespace, _Set, _RecordKeyName, _BinList, _TTL, _Policy) ->
     not_loaded(?LINE).
 
--spec binary_remove(binary(), binary(), binary(), [binary()], integer()) -> 
+-spec cdt_put_async(reference(), binary(), binary(), binary(),
+    [{binary(), binary()|integer()|[integer()]}], integer(),
+    {integer(), integer(), integer(), integer()}) ->
+    {ok, string() | atom()} | {error, {integer(), integer(), string()}}.
+cdt_put_async(_Ref, _Namespace, _Set, _RecordKeyName, _BinList, _TTL, _Policy) ->
+    not_loaded(?LINE).
+
+-spec cdt_get_sync(binary(), binary(), binary(), {integer(), integer(), integer(), integer()}) -> {ok, [{binary(), term()}]} | {error, string()}.
+cdt_get_sync(_Namespace, _Set, _RecordKeyName, _Policy) ->
+    not_loaded(?LINE).
+
+-spec cdt_get_async(reference(), binary(), binary(), binary(), {integer(), integer(), integer(), integer()}) -> {ok, atom()} | {error, {integer(), integer(), string()}}.
+cdt_get_async(_Ref, _Namespace, _Set, _RecordKeyName, _Policy) ->
+    not_loaded(?LINE).
+
+-spec binary_remove(binary(), binary(), binary(), [binary()], integer()) ->
     {ok, string()} | {error, string()}.
 binary_remove(_Namespace, _Set, _Key, _BinNameList, _TTL) ->
     not_loaded(?LINE).
@@ -243,7 +297,7 @@ key_remove() ->
 key_remove(Key) ->
     key_remove(?DEFAULT_NAMESPACE, ?DEFAULT_SET, Key).
 
-% @doc Removes Key from  Namesplace Set
+% @doc Removes Key from Namespace Set
 -spec key_remove(string(), string(), string()) -> {ok, string()} | {error, string()}.
 key_remove(Namespace, Set, Key) when is_list(Namespace), is_list(Set), is_list(Key) ->
     not_loaded(?LINE).
@@ -281,26 +335,37 @@ key_get(Namespace, Set, Key) when is_list(Namespace), is_list(Set), is_list(Key)
 binary_get(Namespace, Set, Key) when is_binary(Namespace), is_binary(Set), is_binary(Key) ->
     not_loaded(?LINE).
 
-segment_tag_get(Namespace, Set, Key, Tag) when is_binary(Namespace), is_binary(Set), is_binary(Key), is_binary(Tag) ->
+% Puts a map into a Bin for RecordKey in Namespace Set.
+-spec map_put(binary(), binary(), binary(), binary(), integer(), map()) -> {ok, [{binary(), term()}]} | {error, string()}.
+map_put(_Namespace, _Set, _RecordKey, _BinName, _TTL, _Map) ->
     not_loaded(?LINE).
 
-cdt_get(Namespace, Set, Key) ->
-    cdt_get(Namespace, Set, Key, {0, 0, 30000, 1000}).
-% {MaxRetries, SleepBetweenRetries, SocketTimeout, TotalTimeout}  timeouts in milliseconds
--spec cdt_get(binary(), binary(), binary(), {integer(), integer(), integer(), integer()}) -> {ok, [{binary(), term()}]} | {error, string()}.
-cdt_get(Namespace, Set, Key, _Policy) when is_binary(Namespace), is_binary(Set), is_binary(Key) ->
+-spec segment_tag_get_sync(binary(), binary(), binary(), binary()) -> {ok, binary() | map()} | {error, string()} | {error, integer(), string()}.
+segment_tag_get_sync(Namespace, Set, Key, BinName) when is_binary(Namespace), is_binary(Set), is_binary(Key), is_binary(BinName) ->
+    not_loaded(?LINE).
+
+-spec segment_tag_get_async(reference(), binary(), binary(), binary(), binary()) -> {ok, binary() | map()} | {error, string()} | {error, integer(), string()}.
+segment_tag_get_async(_Ref, _Namespace, _Set, _Key, _BinName) ->
     not_loaded(?LINE).
 
 -spec cdt_expire(binary(), binary(), binary(), integer()) -> {ok, [{binary(), term()}]} | {error, string()}.
 cdt_expire(Namespace, Set, Key, TTL) when is_binary(Namespace), is_binary(Set), is_binary(Key), is_integer(TTL) ->
     not_loaded(?LINE).
 
--spec cdt_delete_by_keys(binary(), binary(), binary(), binary(), [binary()]) -> {ok, string()} | {error, string()}.
-cdt_delete_by_keys(Namespace, Set, Key, BinName, SubkeysList) when is_binary(Namespace), is_binary(Set), is_binary(Key), is_binary(BinName), is_list(SubkeysList) ->
+-spec cdt_delete_by_keys_sync(binary(), binary(), binary(), binary(), [binary()]) -> {ok, string()} | {error, string()}.
+cdt_delete_by_keys_sync(Namespace, Set, RecordKeyName, BinName, SubkeysList) when is_binary(Namespace), is_binary(Set), is_binary(RecordKeyName), is_binary(BinName), is_list(SubkeysList) ->
     not_loaded(?LINE).
 
--spec cdt_delete_by_keys_batch(binary(), binary(), binary(), [{binary(), [binary()]}]) -> {ok, [integer()]} | {error, string()}.
-cdt_delete_by_keys_batch(Namespace, Set, BinName, KeysSubkeysList) when is_binary(Namespace), is_binary(Set), is_binary(BinName), is_list(KeysSubkeysList) ->
+-spec cdt_delete_by_keys_async(reference(), binary(), binary(), binary(), binary(), [binary()]) -> {ok, atom()} | {error, {integer(), integer(), string()}}.
+cdt_delete_by_keys_async(_Ref, _Namespace, _Set, _RecordKeyName, _BinName, _SubkeysList) ->
+    not_loaded(?LINE).
+
+-spec cdt_delete_by_keys_batch_sync(binary(), binary(), binary(), [{binary(), [binary()]}]) -> {ok, [integer()]} | {error, string()}.
+cdt_delete_by_keys_batch_sync(Namespace, Set, BinName, KeysToRemove) when is_binary(Namespace), is_binary(Set), is_binary(BinName), is_list(KeysToRemove) ->
+    not_loaded(?LINE).
+
+-spec cdt_delete_by_keys_batch_async(reference(), binary(), binary(), binary(), [{binary(), [binary()]}]) -> {ok, atom()} | {error, {integer(), integer(), string()}}.
+cdt_delete_by_keys_batch_async(_Ref, _Namespace, _Set, _BinName, _KeysToRemove) ->
     not_loaded(?LINE).
 
 key_generation() ->
@@ -382,13 +447,6 @@ host_info(HostName, Port, Item) when is_list(HostName), is_integer(Port), is_lis
 nif_host_info(_, _, _) ->
     not_loaded(?LINE).
 
-% @doc Shortcut for testing
--spec b() -> ok.
-b() ->
-    host_add(),
-    connect(),
-    ok.
-
 % @doc Used in ${tsl.erl} to create argument list for testin function
 -spec mk_args(atom(), non_neg_integer()) -> [term()].
 mk_args(_, _) -> [].
@@ -402,12 +460,6 @@ a_key_put(Rep) ->
 
 a_key_put(_, _, _, _, _, _) ->
     not_loaded(?LINE).
-
-foo(_X) ->
-    exit(nif_library_not_loaded).
-
-bar(_Y) ->
-    exit(nif_library_not_loaded).
 
 % -----------------------------------------------------------------
 % 2> tsl:tst(aspike_nif, key_put, 0, 10000).
