@@ -9,19 +9,18 @@ image to run Aerospike, but you can choose any. For reference, you can follow gu
 
 Run next command to download and run aerospike docker image:
 ```bash
-docker run -d --rm --name aerospike_test --ulimit nofile=65536:65536 -p 3000:3000 -p 3001:3001 -p 3002:3002 -p 3003:3003 aerospike:ce-7.1.0.0
+docker run -d --rm --name aerospike_test --ulimit nofile=65536:65536 -p 3000-3003:3000-3003 aerospike:ce-7.1.0.0
 ```
 This will download and store image and create a container under 'aerospike_test' name. Later you can reference this container with commands like:
 ```bash
-docker stop aerospike_test
-docker start aerospike_test
 docker logs aerospike_test # to get logs from Aerospike
 docker exec -ti aerospike_test /bin/bash # to get shell inside container
+docker stop aerospike_test # note - this will remove container due to '--rm' flag to 'docker run' command
 ```
 
 If you need to talk to aerospike in AQL you can run the aql utility:
 ```bash
-docker run --rm -ti aerospike/aerospike-tools:latest aql -h 127.0.0.1
+docker run --rm --network host -ti aerospike/aerospike-tools:latest aql -h 127.0.0.1
 ```
 and there you can run sample queries like
 ```sql
@@ -35,7 +34,7 @@ to see specific record that namespace/set.
 
 If you need to run AS Admin (ASADM) you can run next command:
 ```bash
-docker run --rm -ti aerospike/aerospike-tools:latest asadm -h 127.0.0.1
+docker run --rm --network host -ti aerospike/aerospike-tools:latest asadm -h 127.0.0.1
 ```
 
 ## Building aspike-port
