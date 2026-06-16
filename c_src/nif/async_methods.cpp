@@ -179,7 +179,7 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!check_connected(env, &return_data)) return return_data;
 
     long ttl;
     if (!enif_get_long(env, argv[5], &ttl)) {
@@ -483,7 +483,7 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     policy.base.total_timeout = total_timeout;
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!check_connected(env, &return_data)) return return_data;
 
     as_key record_key;
     as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
@@ -576,7 +576,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!check_connected(env, &return_data)) return return_data;
 
     string name_space((const char*)erl_ns.data, erl_ns.size);
     string set_name((const char*)erl_set_name.data, erl_set_name.size);
@@ -751,7 +751,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_batch_async(ErlNifEnv* env, int argc,
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!check_connected(env, &return_data)) return return_data;
 
     string name_space((const char*)erl_ns.data, erl_ns.size);
     string set_name((const char*)erl_set_name.data, erl_set_name.size);
@@ -945,7 +945,7 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!check_connected(env, &return_data)) return return_data;
 
     string name_space((const char*)erl_ns.data, erl_ns.size);
     string set_name((const char*)erl_set_name.data, erl_set_name.size);

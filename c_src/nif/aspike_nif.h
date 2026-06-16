@@ -20,7 +20,8 @@ struct NodeConnectionStats {
 enum aspike_status {
     ASPIKE_NIF_OK = 0,
 	ASPIKE_NIF_MEMORY_ALLOC_ERR = 1,
-    ASPIKE_NIF_NO_CALLER_ID = 2
+    ASPIKE_NIF_NO_CALLER_ID = 2,
+    ASPIKE_NIF_NOT_CONNECTED = 3
 };
 
 #define MAX_HOST_SIZE 1024
@@ -37,7 +38,6 @@ extern ERL_NIF_TERM atom_done;
 extern ERL_NIF_TERM atom_true;
 extern ERL_NIF_TERM atom_false;
 extern ERL_NIF_TERM atom_connected;
-extern ERL_NIF_TERM atom_not_connected;
 extern ERL_NIF_TERM atom_in_progress;
 extern ERL_NIF_TERM atom_undefined;
 
@@ -60,10 +60,11 @@ extern bool check_connected (ErlNifEnv* env, ERL_NIF_TERM* err);
         rc = atom_error; \
         code = enif_make_int(env, int(err_code)); \
         msg = enif_make_string(env, err_msg, ERL_NIF_UTF8); \
-        if(!p_rec) { \
+        if(p_rec) { \
             as_record_destroy(p_rec); \
         } \
-        return enif_make_tuple3(env, rc, code, msg); \
+        ERL_NIF_TERM error_tuple = enif_make_tuple3(env, enif_make_int(env, ASPIKE_NIF_OK), code, msg); \
+        return enif_make_tuple2(env, rc, error_tuple); \
     }
 
 #endif // ASPIKE_NIF_H

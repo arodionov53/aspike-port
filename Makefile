@@ -35,6 +35,7 @@ ensure_aerospike_test:
 	fi
 
 test: ensure_aerospike_test
+	rebar3 eunit --module=aspike_nif_not_connected_test --verbose
 	rebar3 eunit --module=aspike_nif_eunit_test --verbose
 
 stress_test: ensure_aerospike_test
