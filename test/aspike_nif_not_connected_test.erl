@@ -21,14 +21,18 @@ all_test_() ->
             {"cdt_delete_by_keys_batch_sync not connected", fun cdt_delete_by_keys_batch_sync_not_connected/0},
             {"cdt_delete_by_keys_batch_async not connected", fun cdt_delete_by_keys_batch_async_not_connected/0},
             {"segment_tag_get_sync not connected", fun segment_tag_get_sync_not_connected/0},
-            {"segment_tag_get_async not connected", fun segment_tag_get_async_not_connected/0}
+            {"segment_tag_get_async not connected", fun segment_tag_get_async_not_connected/0},
+            {"disconnect when not connected", fun disconnect_when_not_connected/0}
         ]
     }.
 
 setup() ->
-    % Calling any function ensures the module (and NIF) is loaded via on_load.
-    % We intentionally do NOT call connect() — operations should fail with not_connected.
-    aspike_nif:is_connected(),
+    % Ensure we are disconnected — if another test module connected before us,
+    % disconnect so we can test the not-connected error paths.
+    case aspike_nif:is_connected() of
+        true -> aspike_nif:disconnect();
+        false -> ok
+    end,
     ok.
 
 cleanup(_) ->
@@ -80,6 +84,10 @@ segment_tag_get_async_not_connected() ->
     Ref = make_ref(),
     Result = aspike_nif:segment_tag_get_async(Ref, ?NAMESPACE, ?SET, ?KEY, <<"tag">>),
     assert_not_connected(Result).
+
+disconnect_when_not_connected() ->
+    Result = aspike_nif:disconnect(),
+    ?assertEqual({ok, "disconnected"}, Result).
 
 assert_not_connected(Result) ->
     ?assertMatch({error, {_, _, _}}, Result),

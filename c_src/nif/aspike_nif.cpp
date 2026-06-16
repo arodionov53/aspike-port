@@ -363,6 +363,30 @@ static ERL_NIF_TERM aspike_nif_connect(ErlNifEnv* env, int argc, const ERL_NIF_T
     return response;
 }
 
+static ERL_NIF_TERM aspike_nif_disconnect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    if (!is_connected_flag) {
+        return enif_make_tuple2(env, atom_ok, enif_make_string(env, "disconnected", ERL_NIF_UTF8));
+    }
+
+    as_error err;
+    as_status rc = aerospike_close(&as, &err);
+    if (rc != AEROSPIKE_OK) {
+        ERL_NIF_TERM error_msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
+        return enif_make_tuple2(env, atom_error, error_msg);
+    }
+
+    is_connected_flag = false;
+    aerospike_destroy(&as);
+
+    // Re-initialize so host_add/connect can be called again
+    as_config config;
+    as_config_init(&config);
+    aerospike_init(&as, &config);
+
+    return enif_make_tuple2(env, atom_ok, enif_make_string(env, "disconnected", ERL_NIF_UTF8));
+}
+
 // -spec is_connected_check() -> false | true.
 // Provides connection status to Aerospike cluster.
 // Returns one of the atom:
@@ -687,6 +711,7 @@ static ErlNifFunc nif_funcs[] = {
     {"host_clear", 0, aspike_nif_host_clear},
     {"nif_host_list", 0, aspike_nif_host_list},
     NIF_DIRTY_FUN("connect", 2, aspike_nif_connect),
+    NIF_DIRTY_FUN("disconnect", 0, aspike_nif_disconnect),
     {"is_connected", 0, aspike_nif_is_connected_check},
     NIF_DIRTY_FUN("nif_node_random", 0, aspike_nif_node_random),
     NIF_DIRTY_FUN("nif_node_names", 0, aspike_nif_node_names),

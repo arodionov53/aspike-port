@@ -18,6 +18,7 @@
     enable_statistic_collection/1,
     connect/0,
     connect/2,
+    disconnect/0,
     is_connected/0,
     get_connections_stats/0,
     key_exists/0,
@@ -81,6 +82,7 @@
     set_event_loops_amount/1,
     enable_statistic_collection/1,
     connect/2,
+    disconnect/0,
     is_connected/0,
     get_connections_stats/0,
     key_exists/3,
@@ -199,6 +201,10 @@ connect() ->
 % @doc Create connection using User and PWd credential
 -spec connect(string(), string()) -> {ok, connected} | {error, string()}.
 connect(_, _) ->
+    not_loaded(?LINE).
+
+-spec disconnect() -> {ok, string()} | {error, string()}.
+disconnect() ->
     not_loaded(?LINE).
 
 -spec is_connected() -> false | true.

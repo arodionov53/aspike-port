@@ -35,15 +35,14 @@ ensure_aerospike_test:
 	fi
 
 test: ensure_aerospike_test
-	rebar3 eunit --module=aspike_nif_not_connected_test --verbose
-	rebar3 eunit --module=aspike_nif_eunit_test --verbose
+	rebar3 eunit --verbose
 
 stress_test: ensure_aerospike_test
 	rebar3 as test compile
-	erl -pa _build/test/lib/aspike_port/ebin -pa _build/test/lib/pooler/ebin \
+	erl -pa _build/test/lib/aspike_port/ebin -pa _build/test/lib/aspike_port/test \
 		-noshell -s aspike_nif_test stress_test
 
 memory_leak_test: ensure_aerospike_test
 	rebar3 as test compile
-	erl -pa _build/test/lib/aspike_port/ebin -pa _build/test/lib/pooler/ebin \
+	erl -pa _build/test/lib/aspike_port/ebin -pa _build/test/lib/aspike_port/test \
 		-noshell -s aspike_nif_test memory_leak_test
