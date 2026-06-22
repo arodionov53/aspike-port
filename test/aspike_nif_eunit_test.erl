@@ -29,7 +29,8 @@ all_test_() ->
             {"get_absent_record_async", fun test_get_absent_record_async/0},
             {"multi_bin_write", fun test_multi_bin_write/0},
             {"batch_insert_large_bin", fun test_batch_insert_large_bin/0},
-            {"cdt_put_then_map_put_same_bin", fun test_cdt_put_then_map_put_same_bin/0}
+            {"cdt_put_then_map_put_same_bin", fun test_cdt_put_then_map_put_same_bin/0},
+            {"disconnect_and_reconnect", fun test_disconnect_and_reconnect/0}
         ]
     }.
 
@@ -329,6 +330,24 @@ test_cdt_put_get_mixed(WriteMode, ReadMode) ->
         ?assertEqual(Value, ActualValue),
         ?assertEqual(ExpTTL, ActualTTL)
     end, WrittenItems).
+
+test_disconnect_and_reconnect() ->
+    ?assert(aspike_nif:is_connected()),
+    ?assertMatch({ok, _}, aspike_nif:disconnect()),
+    ?assertNot(aspike_nif:is_connected()),
+    % operations should fail while disconnected
+    Result = aspike_nif:cdt_get_sync(?NAMESPACE, ?SET, <<"any_key">>, {3, 250, 30000, 1000}),
+    ?assertMatch({error, {_, _, "not_connected"}}, Result),
+    % reconnect — after disconnect, re-init the client first
+    aspike_nif:init_client(),
+    aspike_nif:host_add(),
+    ?assertMatch({ok, _}, aspike_nif:connect()),
+    ?assert(aspike_nif:is_connected()),
+    % verify operations work after reconnect
+    PK = <<"eunit_reconnect_test">>,
+    Bins = [{<<"data">>, [<<"k1">>, <<1, 2, 3>>, 100]}],
+    assert_put_ok(cdt_put(sync, ?NAMESPACE, ?SET, PK, Bins, 60)),
+    ?assertMatch({ok, _}, cdt_get(sync, ?NAMESPACE, ?SET, PK)).
 
 %% Helpers
 

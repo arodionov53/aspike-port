@@ -179,7 +179,7 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
 
     long ttl;
     if (!enif_get_long(env, argv[5], &ttl)) {
@@ -260,7 +260,7 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
         // {<<"fcap_map">>, [<<"map_1_name">>, <<"map_1_value">>, 123, <<"map_2_name">>, <<"map_2_value">>, 456]}
         // will form a next map:
         // KEY_ORDERED_MAP('{"map_1_name":{"ttl":123, "value":"map_1_value", "wt":1766794574}, "map_2_name":{"ttl":456, "value":"map_2_value", "wt":1766794574}}')
-        // which will be stored under a bin name "fcap_map". 
+        // which will be stored under a bin name "fcap_map".
 
         ERL_NIF_TERM bins_head, bins_tail;
         enif_get_list_cell(env, bins, &bins_head, &bins_tail);
@@ -340,7 +340,7 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
                     // erl_value_data points to something like <<"map_1_value">>.
                     // Create aerospike string (a second level key name) which will be freed by context on its removal.
                     as_string* key_name = as_string_new_strdup("value");
-                    
+
                     // Use the data from erlang term (the data of which wil be available during this function lifespan).
                     // The 'false' flag means no memory free for that data.
                     as_bytes* value_data = as_bytes_new_wrap(erl_value_data.data, erl_value_data.size, false);
@@ -458,7 +458,7 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     if (!enif_inspect_binary(env, argv[3], &erl_record_name)) {
         return enif_make_badarg(env);
     }
-    
+
     string set_name((const char*)erl_set_name.data, erl_set_name.size);
     string name_space((const char*)erl_namespace.data, erl_namespace.size);
     string record_name((const char*)erl_record_name.data, erl_record_name.size);
@@ -483,7 +483,7 @@ ERL_NIF_TERM aspike_nif_cdt_get_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
     policy.base.total_timeout = total_timeout;
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
 
     as_key record_key;
     as_key_init_str(&record_key, name_space.c_str(), set_name.c_str(), record_name.c_str());
@@ -576,7 +576,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_async(ErlNifEnv* env, int argc, const
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
 
     string name_space((const char*)erl_ns.data, erl_ns.size);
     string set_name((const char*)erl_set_name.data, erl_set_name.size);
@@ -751,7 +751,7 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_batch_async(ErlNifEnv* env, int argc,
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
 
     string name_space((const char*)erl_ns.data, erl_ns.size);
     string set_name((const char*)erl_set_name.data, erl_set_name.size);
@@ -945,7 +945,7 @@ ERL_NIF_TERM aspike_nif_segment_tag_get_async(ErlNifEnv* env, int argc, const ER
     }
 
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
 
     string name_space((const char*)erl_ns.data, erl_ns.size);
     string set_name((const char*)erl_set_name.data, erl_set_name.size);

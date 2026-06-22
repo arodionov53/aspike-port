@@ -48,6 +48,7 @@ using namespace std;
 
 aerospike as;
 bool is_connected_flag = false;
+static bool is_initialized = false;
 bool statistics_enabled_flag = false;
 static as_monitor app_complete_monitor;
 static uint32_t event_loops_amount = 1;
@@ -58,7 +59,6 @@ ERL_NIF_TERM atom_done;
 ERL_NIF_TERM atom_true;
 ERL_NIF_TERM atom_false;
 ERL_NIF_TERM atom_connected;
-ERL_NIF_TERM atom_not_connected;
 ERL_NIF_TERM atom_in_progress;
 ERL_NIF_TERM atom_undefined;
 
@@ -79,12 +79,16 @@ bool statistics_enabled () {
     return statistics_enabled_flag;
 }
 
-bool check_connected (ErlNifEnv* env, ERL_NIF_TERM* err) {
+bool is_connected (ErlNifEnv* env, ERL_NIF_TERM* err) {
     if (!is_connected_flag) {
-        *err = enif_make_tuple2(env, atom_error, atom_not_connected);
-        return true;
+        auto nifErrorCode = enif_make_int(env, ASPIKE_NIF_NOT_CONNECTED);
+        auto aspikeErrorCode = enif_make_int(env, AEROSPIKE_ERR_CLIENT);
+        auto msg = enif_make_string(env, "not_connected", ERL_NIF_UTF8);
+        ERL_NIF_TERM error_tuple = enif_make_tuple3(env, nifErrorCode, aspikeErrorCode, msg);
+        *err = enif_make_tuple2(env, atom_error, error_tuple);
+        return false;
     }
-    return false;
+    return true;
 }
 
 // Get target node for a key using proper Aerospike partition routing
@@ -188,12 +192,23 @@ shared_ptr<NodeConnectionStats> get_or_create_node_stats(const string& node_name
 
 // ----------------------------------------------------------------------------
 
-static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
-{
+static void init_aerospike_client() {
+    if (is_initialized) return;
     as_config config;
     as_config_init(&config);
-
     aerospike_init(&as, &config);
+    is_initialized = true;
+}
+
+static ERL_NIF_TERM aspike_nif_init_client(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    init_aerospike_client();
+    return enif_make_tuple2(env, atom_ok, enif_make_string(env, "initialized", ERL_NIF_UTF8));
+}
+
+static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
+{
+    init_aerospike_client();
 
     // the following atoms are definitely present in the VM but to keep code short and
     // simple we call enif_make_atom() instead of enif_make_existing_atom(). Plus, who
@@ -204,7 +219,6 @@ static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
     atom_true = enif_make_atom(env, "true");
     atom_false = enif_make_atom(env, "false");
     atom_connected = enif_make_atom(env, "connected");
-    atom_not_connected = enif_make_atom(env, "not_connected");
     atom_in_progress = enif_make_atom(env, "in_progress");
     atom_undefined = enif_make_atom(env, "undefined");
 
@@ -361,6 +375,26 @@ static ERL_NIF_TERM aspike_nif_connect(ErlNifEnv* env, int argc, const ERL_NIF_T
     return response;
 }
 
+static ERL_NIF_TERM aspike_nif_disconnect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    if (!is_connected_flag) {
+        return enif_make_tuple2(env, atom_ok, enif_make_string(env, "disconnected", ERL_NIF_UTF8));
+    }
+
+    as_error err;
+    as_status rc = aerospike_close(&as, &err);
+    if (rc != AEROSPIKE_OK) {
+        ERL_NIF_TERM error_msg = enif_make_string(env, err.message, ERL_NIF_UTF8);
+        return enif_make_tuple2(env, atom_error, error_msg);
+    }
+
+    is_connected_flag = false;
+    aerospike_destroy(&as);
+    is_initialized = false;
+
+    return enif_make_tuple2(env, atom_ok, enif_make_string(env, "disconnected", ERL_NIF_UTF8));
+}
+
 // -spec is_connected_check() -> false | true.
 // Provides connection status to Aerospike cluster.
 // Returns one of the atom:
@@ -384,7 +418,7 @@ static ERL_NIF_TERM aspike_nif_is_connected_check(ErlNifEnv* env, int argc, cons
 static ERL_NIF_TERM aspike_nif_node_random(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
 
     ERL_NIF_TERM rc, msg;
     as_node* node = as_node_get_random(as.cluster);
@@ -403,7 +437,7 @@ static ERL_NIF_TERM aspike_nif_node_random(ErlNifEnv* env, int argc, const ERL_N
 static ERL_NIF_TERM aspike_nif_node_names(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
 
     ERL_NIF_TERM rc;
 	as_nodes* nodes = as_nodes_reserve(as.cluster);
@@ -434,7 +468,7 @@ static ERL_NIF_TERM aspike_nif_node_get(ErlNifEnv* env, int argc, const ERL_NIF_
 	    return enif_make_badarg(env);
     }
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
     ERL_NIF_TERM rc, msg;
 
     as_node* node = as_node_get_by_name(as.cluster, node_name);
@@ -461,7 +495,7 @@ static ERL_NIF_TERM aspike_nif_node_info(ErlNifEnv* env, int argc, const ERL_NIF
 	    return enif_make_badarg(env);
     }
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
     ERL_NIF_TERM rc, msg;
 
 	as_cluster* cluster = as.cluster;
@@ -501,7 +535,7 @@ static ERL_NIF_TERM aspike_nif_help(ErlNifEnv* env, int argc, const ERL_NIF_TERM
 	    return enif_make_badarg(env);
     }
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
     ERL_NIF_TERM rc, msg;
     char * info = NULL;
     as_error err;
@@ -536,7 +570,7 @@ static ERL_NIF_TERM aspike_nif_host_info(ErlNifEnv* env, int argc, const ERL_NIF
 	    return enif_make_badarg(env);
     }
     ERL_NIF_TERM return_data;
-    if (check_connected(env, &return_data)) return return_data;
+    if (!is_connected(env, &return_data)) return return_data;
     ERL_NIF_TERM rc, msg;
     as_error err;
     as_address_iterator iter;
@@ -584,7 +618,7 @@ static ERL_NIF_TERM aspike_nif_host_info(ErlNifEnv* env, int argc, const ERL_NIF
 }
 
 static ERL_NIF_TERM aspike_nif_get_connections_stats(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-    
+
     if (!statistics_enabled_flag) {
         ERL_NIF_TERM global_stats = enif_make_tuple6(env,
             enif_make_uint(env, 0),
@@ -681,10 +715,12 @@ static ErlNifFunc nif_funcs[] = {
     {"set_connections_per_node", 4, aspike_nif_set_connections_per_node},
     {"set_event_loops_amount", 1, aspike_nif_set_event_loops_amount},
     {"enable_statistic_collection", 1, aspike_nif_enable_statistic_collection},
+    {"init_client", 0, aspike_nif_init_client},
     {"nif_host_add", 2, aspike_nif_host_add},
     {"host_clear", 0, aspike_nif_host_clear},
     {"nif_host_list", 0, aspike_nif_host_list},
     NIF_DIRTY_FUN("connect", 2, aspike_nif_connect),
+    NIF_DIRTY_FUN("disconnect", 0, aspike_nif_disconnect),
     {"is_connected", 0, aspike_nif_is_connected_check},
     NIF_DIRTY_FUN("nif_node_random", 0, aspike_nif_node_random),
     NIF_DIRTY_FUN("nif_node_names", 0, aspike_nif_node_names),

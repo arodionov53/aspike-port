@@ -6,6 +6,7 @@
 -include_lib("kernel/include/logger.hrl").
 
 -export([
+    init_client/0,
     host_add/0,
     host_add/1,
     host_add/2,
@@ -18,6 +19,7 @@
     enable_statistic_collection/1,
     connect/0,
     connect/2,
+    disconnect/0,
     is_connected/0,
     get_connections_stats/0,
     key_exists/0,
@@ -74,6 +76,7 @@
 ]).
 
 -nifs([
+    init_client/0,
     nif_host_add/2,
     host_clear/0,
     nif_host_list/0,
@@ -81,6 +84,7 @@
     set_event_loops_amount/1,
     enable_statistic_collection/1,
     connect/2,
+    disconnect/0,
     is_connected/0,
     get_connections_stats/0,
     key_exists/3,
@@ -135,6 +139,10 @@ init() ->
 
 not_loaded(Line) ->
     erlang:nif_error({not_loaded, [{module, ?MODULE}, {line, Line}]}).
+
+-spec init_client() -> {ok, string()}.
+init_client() ->
+    not_loaded(?LINE).
 
 -spec host_add() -> {ok, string()} | {error, string()}.
 host_add() ->
@@ -201,6 +209,10 @@ connect() ->
 connect(_, _) ->
     not_loaded(?LINE).
 
+-spec disconnect() -> {ok, string()} | {error, string()}.
+disconnect() ->
+    not_loaded(?LINE).
+
 -spec is_connected() -> false | true.
 is_connected() ->
     not_loaded(?LINE).
@@ -265,9 +277,9 @@ binary_put(_Namespace, _Set, _Key, _BinList, _TTL) ->
     not_loaded(?LINE).
 
 -spec cdt_put_sync(binary(), binary(), binary(),
-        [{binary(), binary()|integer()|[integer()]}], integer(), 
+        [{binary(), binary()|integer()|[integer()]}], integer(),
         {integer(), integer(), integer(), integer()}) ->
-            {ok, string()} | {error, string()}.
+            {ok, string()} | {error, {integer(), integer(), string()}}.
 cdt_put_sync(_Namespace, _Set, _RecordKeyName, _BinList, _TTL, _Policy) ->
     not_loaded(?LINE).
 
@@ -278,7 +290,7 @@ cdt_put_sync(_Namespace, _Set, _RecordKeyName, _BinList, _TTL, _Policy) ->
 cdt_put_async(_Ref, _Namespace, _Set, _RecordKeyName, _BinList, _TTL, _Policy) ->
     not_loaded(?LINE).
 
--spec cdt_get_sync(binary(), binary(), binary(), {integer(), integer(), integer(), integer()}) -> {ok, [{binary(), term()}]} | {error, string()}.
+-spec cdt_get_sync(binary(), binary(), binary(), {integer(), integer(), integer(), integer()}) -> {ok, [{binary(), term()}]} | {error, {integer(), integer(), string()}}.
 cdt_get_sync(_Namespace, _Set, _RecordKeyName, _Policy) ->
     not_loaded(?LINE).
 
@@ -340,11 +352,11 @@ binary_get(Namespace, Set, Key) when is_binary(Namespace), is_binary(Set), is_bi
 map_put(_Namespace, _Set, _RecordKey, _BinName, _TTL, _Map) ->
     not_loaded(?LINE).
 
--spec segment_tag_get_sync(binary(), binary(), binary(), binary()) -> {ok, binary() | map()} | {error, string()} | {error, integer(), string()}.
+-spec segment_tag_get_sync(binary(), binary(), binary(), binary()) -> {ok, binary() | map()} | {error, {integer(), integer(), string()}}.
 segment_tag_get_sync(Namespace, Set, Key, BinName) when is_binary(Namespace), is_binary(Set), is_binary(Key), is_binary(BinName) ->
     not_loaded(?LINE).
 
--spec segment_tag_get_async(reference(), binary(), binary(), binary(), binary()) -> {ok, binary() | map()} | {error, string()} | {error, integer(), string()}.
+-spec segment_tag_get_async(reference(), binary(), binary(), binary(), binary()) -> {ok, binary() | map()} | {error, {integer(), integer(), string()}}.
 segment_tag_get_async(_Ref, _Namespace, _Set, _Key, _BinName) ->
     not_loaded(?LINE).
 
@@ -352,7 +364,7 @@ segment_tag_get_async(_Ref, _Namespace, _Set, _Key, _BinName) ->
 cdt_expire(Namespace, Set, Key, TTL) when is_binary(Namespace), is_binary(Set), is_binary(Key), is_integer(TTL) ->
     not_loaded(?LINE).
 
--spec cdt_delete_by_keys_sync(binary(), binary(), binary(), binary(), [binary()]) -> {ok, string()} | {error, string()}.
+-spec cdt_delete_by_keys_sync(binary(), binary(), binary(), binary(), [binary()]) -> {ok, string()} | {error, {integer(), integer(), string()}}.
 cdt_delete_by_keys_sync(Namespace, Set, RecordKeyName, BinName, SubkeysList) when is_binary(Namespace), is_binary(Set), is_binary(RecordKeyName), is_binary(BinName), is_list(SubkeysList) ->
     not_loaded(?LINE).
 
@@ -360,7 +372,7 @@ cdt_delete_by_keys_sync(Namespace, Set, RecordKeyName, BinName, SubkeysList) whe
 cdt_delete_by_keys_async(_Ref, _Namespace, _Set, _RecordKeyName, _BinName, _SubkeysList) ->
     not_loaded(?LINE).
 
--spec cdt_delete_by_keys_batch_sync(binary(), binary(), binary(), [{binary(), [binary()]}]) -> {ok, [integer()]} | {error, string()}.
+-spec cdt_delete_by_keys_batch_sync(binary(), binary(), binary(), [{binary(), [binary()]}]) -> {ok, [integer()]} | {error, {integer(), integer(), string()}}.
 cdt_delete_by_keys_batch_sync(Namespace, Set, BinName, KeysToRemove) when is_binary(Namespace), is_binary(Set), is_binary(BinName), is_list(KeysToRemove) ->
     not_loaded(?LINE).
 
