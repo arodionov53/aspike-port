@@ -61,7 +61,7 @@ struct callback_data {
     }
 
     callback_data(ErlNifEnv* caller_pd_env, const ERL_NIF_TERM ref_to_save,
-        const string& name_space, const string& set_name, const string& record_name)
+                  const string& name_space, const string& set_name, const string& record_name)
         : callback_data(caller_pd_env, ref_to_save) {
         if (!statistics_enabled()) return;
         node_name = get_target_node_for_key(name_space.c_str(), set_name.c_str(), record_name.c_str());
@@ -325,11 +325,11 @@ ERL_NIF_TERM aspike_nif_cdt_put_async(ErlNifEnv* env, int argc, const ERL_NIF_TE
                     // Now, make a copy of the string on heap (because the erl_key_name located on stack)
                     // so Aerospike will be able to free its memory once the 'key_name' variable will be destroyed.
                     // Allocate size + 1 for null terminator
-                    uint8_t * copy_on_heap = (uint8_t *)malloc(sizeof(uint8_t) * (erl_key_name.size + 1));
+                    uint8_t* copy_on_heap = (uint8_t*)malloc(sizeof(uint8_t) * (erl_key_name.size + 1));
                     memcpy(copy_on_heap, erl_key_name.data, erl_key_name.size);
-                    copy_on_heap[erl_key_name.size] = '\0'; // Null terminate the string
+                    copy_on_heap[erl_key_name.size] = '\0';  // Null terminate the string
                     // create aerospike string which will be freed by context on its removal
-                    as_string* key_name = as_string_new((char *)copy_on_heap, true);
+                    as_string* key_name = as_string_new((char*)copy_on_heap, true);
                     as_cdt_ctx_add_map_key_create(context, (as_val*)key_name, AS_MAP_KEY_ORDERED);
                 }
                 opnum++;
@@ -785,7 +785,6 @@ ERL_NIF_TERM aspike_nif_cdt_delete_by_keys_batch_async(ErlNifEnv* env, int argc,
 
         erl_map_keys = erl_tuple[1];
         for (uint k = 0; k < map_keys_amount; k++) {
-
             enif_get_list_cell(env, erl_map_keys, &erl_map_keys_head, &erl_map_keys_tail);
             enif_inspect_binary(env, erl_map_keys_head, &erl_map_key_name);
 
@@ -860,7 +859,6 @@ void segment_tag_get_async_callback(as_error* err, as_record* records, void* uda
 
         result_msg = enif_make_tuple3(cb_data->erl_pi_env, atom_error, cb_data->ref, error_tuple);
     } else {
-
         try {
             if (records == NULL) throw "NULL p_rec";
             as_bin_value* bin = as_record_get(records, cb_data->bin_name.c_str());
@@ -896,11 +894,11 @@ void segment_tag_get_async_callback(as_error* err, as_record* records, void* uda
                 while (as_orderedmap_iterator_has_next(&it)) {
                     auto item = as_orderedmap_iterator_next(&it);
                     as_pair* pair = as_pair_fromval(item);
-                    as_val * key_name = as_pair_1(pair);
+                    as_val* key_name = as_pair_1(pair);
 
                     keys[idx] = aspike_get_binary_from_asval(cb_data->erl_pi_env, key_name);
 
-                    as_val * value = as_pair_2(pair);
+                    as_val* value = as_pair_2(pair);
                     values[idx] = aspike_get_binary_from_asval(cb_data->erl_pi_env, value);
 
                     idx++;
@@ -911,7 +909,7 @@ void segment_tag_get_async_callback(as_error* err, as_record* records, void* uda
             }
 
             result_msg = enif_make_tuple3(cb_data->erl_pi_env, atom_ok, cb_data->ref, response);
-        } catch (char * reason) {
+        } catch (char* reason) {
             auto nifErrorCode = enif_make_int(cb_data->erl_pi_env, ASPIKE_NIF_OK);
             auto aspikeErrorCode = enif_make_int(cb_data->erl_pi_env, int(AEROSPIKE_ERR));
             ERL_NIF_TERM error_msg = enif_make_string(cb_data->erl_pi_env, reason, ERL_NIF_UTF8);
