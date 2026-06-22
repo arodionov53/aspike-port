@@ -257,40 +257,45 @@ ERL_NIF_TERM aspike_dump_cdt_records(ErlNifEnv* env, const as_record* p_rec) {
     return erl_list;
 }
 
-#define RETURN_EMPTY_ERL_STR { ERL_NIF_TERM empty; enif_make_new_binary(env, 0, &empty); return empty; }
+#define RETURN_EMPTY_ERL_STR                  \
+    {                                         \
+        ERL_NIF_TERM empty;                   \
+        enif_make_new_binary(env, 0, &empty); \
+        return empty;                         \
+    }
 
-// Anyone using function aspike_get_binary_from_asval doesn't expect to get problems. 
+// Anyone using function aspike_get_binary_from_asval doesn't expect to get problems.
 // What if the data you are reading has type you don't expect ? You expect to read string,
 // but instead the as_val points to a map. SIGSEGV is a result.
 // So it's possible to write wrong data under some specific key or bin and crash the process
 // which reads that key. The current solution is to return empty string as this is what is being
-// expected. 
-ERL_NIF_TERM aspike_get_binary_from_asval(ErlNifEnv* env, const as_val * val) {
+// expected.
+ERL_NIF_TERM aspike_get_binary_from_asval(ErlNifEnv* env, const as_val* val) {
     ERL_NIF_TERM erl_value;
     if (!val) RETURN_EMPTY_ERL_STR
     auto val_type = as_val_type(val);
-    char * data;
+    char* data;
     unsigned int len;
     if (val_type == AS_STRING) {
-        as_string *str_p = as_string_fromval(val);
+        as_string* str_p = as_string_fromval(val);
         if (!str_p) RETURN_EMPTY_ERL_STR
         len = as_string_len(str_p);
         if (!len) RETURN_EMPTY_ERL_STR
         data = as_string_get(str_p);
     } else if (val_type == AS_BYTES) {
-        as_bytes *bytes = as_bytes_fromval(val);
+        as_bytes* bytes = as_bytes_fromval(val);
         if (!bytes) RETURN_EMPTY_ERL_STR
         len = as_bytes_size(bytes);
         if (!len) RETURN_EMPTY_ERL_STR
-        data = (char *)as_bytes_get(bytes);
+        data = (char*)as_bytes_get(bytes);
     } else {
         RETURN_EMPTY_ERL_STR
     }
-    
+
     if (!data) RETURN_EMPTY_ERL_STR
-    
-    unsigned char * erl_bin = enif_make_new_binary(env, len, &erl_value);
+
+    unsigned char* erl_bin = enif_make_new_binary(env, len, &erl_value);
     memcpy(erl_bin, data, len);
-    
+
     return erl_value;
 }
