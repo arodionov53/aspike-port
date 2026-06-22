@@ -13,21 +13,20 @@ struct NodeConnectionStats {
     atomic<uint32_t> async_peak;
     atomic<int64_t> async_peak_ttl;
 
-    NodeConnectionStats() :
-        async_current(0), async_peak(0), async_peak_ttl(0) {}
+    NodeConnectionStats() : async_current(0), async_peak(0), async_peak_ttl(0) {}
 };
 
 enum aspike_status {
     ASPIKE_NIF_OK = 0,
-	ASPIKE_NIF_MEMORY_ALLOC_ERR = 1,
+    ASPIKE_NIF_MEMORY_ALLOC_ERR = 1,
     ASPIKE_NIF_NO_CALLER_ID = 2,
     ASPIKE_NIF_NOT_CONNECTED = 3
 };
 
 #define MAX_HOST_SIZE 1024
 #define MAX_KEY_STR_SIZE 1024
-#define MAX_NAMESPACE_SIZE 32	// based on current server limit
-#define MAX_SET_SIZE 64			// based on current server limit
+#define MAX_NAMESPACE_SIZE 32   // based on current server limit
+#define MAX_SET_SIZE 64         // based on current server limit
 #define AS_BIN_NAME_MAX_SIZE 16
 #define MAX_BINS_NUMBER 1024
 
@@ -53,18 +52,14 @@ extern shared_ptr<NodeConnectionStats> get_or_create_node_stats (const string& n
 
 extern aerospike* get_aerospike ();
 extern bool statistics_enabled ();
-extern bool check_connected (ErlNifEnv* env, ERL_NIF_TERM* err);
+extern bool is_connected (ErlNifEnv* env, ERL_NIF_TERM* err);
 
-#define RETURN_ERROR_WITH_MSG_IF(t_var, p_rec, err_code, err_msg) \
-    if(t_var) { \
-        rc = atom_error; \
-        code = enif_make_int(env, int(err_code)); \
-        msg = enif_make_string(env, err_msg, ERL_NIF_UTF8); \
-        if(p_rec) { \
-            as_record_destroy(p_rec); \
-        } \
-        ERL_NIF_TERM error_tuple = enif_make_tuple3(env, enif_make_int(env, ASPIKE_NIF_OK), code, msg); \
-        return enif_make_tuple2(env, rc, error_tuple); \
-    }
+inline ERL_NIF_TERM make_nif_error(ErlNifEnv* env, int err_code, const char* err_msg) {
+    ERL_NIF_TERM nif_code = enif_make_int(env, ASPIKE_NIF_OK);
+    ERL_NIF_TERM aspike_code = enif_make_int(env, err_code);
+    ERL_NIF_TERM msg = enif_make_string(env, err_msg, ERL_NIF_UTF8);
+    ERL_NIF_TERM error_tuple = enif_make_tuple3(env, nif_code, aspike_code, msg);
+    return enif_make_tuple2(env, atom_error, error_tuple);
+}
 
 #endif // ASPIKE_NIF_H
