@@ -338,7 +338,8 @@ test_disconnect_and_reconnect() ->
     % operations should fail while disconnected
     Result = aspike_nif:cdt_get_sync(?NAMESPACE, ?SET, <<"any_key">>, {3, 250, 30000, 1000}),
     ?assertMatch({error, {_, _, "not_connected"}}, Result),
-    % reconnect — after disconnect, full re-init is needed
+    % reconnect — after disconnect, re-init the client first
+    aspike_nif:init_client(),
     aspike_nif:host_add(),
     ?assertMatch({ok, _}, aspike_nif:connect()),
     ?assert(aspike_nif:is_connected()),

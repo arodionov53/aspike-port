@@ -6,6 +6,7 @@
 -include_lib("kernel/include/logger.hrl").
 
 -export([
+    init_client/0,
     host_add/0,
     host_add/1,
     host_add/2,
@@ -75,6 +76,7 @@
 ]).
 
 -nifs([
+    init_client/0,
     nif_host_add/2,
     host_clear/0,
     nif_host_list/0,
@@ -137,6 +139,10 @@ init() ->
 
 not_loaded(Line) ->
     erlang:nif_error({not_loaded, [{module, ?MODULE}, {line, Line}]}).
+
+-spec init_client() -> {ok, string()}.
+init_client() ->
+    not_loaded(?LINE).
 
 -spec host_add() -> {ok, string()} | {error, string()}.
 host_add() ->

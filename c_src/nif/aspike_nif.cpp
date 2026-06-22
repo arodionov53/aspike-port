@@ -48,6 +48,7 @@ using namespace std;
 
 aerospike as;
 bool is_connected_flag = false;
+static bool is_initialized = false;
 bool statistics_enabled_flag = false;
 static as_monitor app_complete_monitor;
 static uint32_t event_loops_amount = 1;
@@ -191,12 +192,23 @@ shared_ptr<NodeConnectionStats> get_or_create_node_stats(const string& node_name
 
 // ----------------------------------------------------------------------------
 
-static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
-{
+static void init_aerospike_client() {
+    if (is_initialized) return;
     as_config config;
     as_config_init(&config);
-
     aerospike_init(&as, &config);
+    is_initialized = true;
+}
+
+static ERL_NIF_TERM aspike_nif_init_client(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    init_aerospike_client();
+    return enif_make_tuple2(env, atom_ok, enif_make_string(env, "initialized", ERL_NIF_UTF8));
+}
+
+static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
+{
+    init_aerospike_client();
 
     // the following atoms are definitely present in the VM but to keep code short and
     // simple we call enif_make_atom() instead of enif_make_existing_atom(). Plus, who
@@ -378,11 +390,7 @@ static ERL_NIF_TERM aspike_nif_disconnect(ErlNifEnv* env, int argc, const ERL_NI
 
     is_connected_flag = false;
     aerospike_destroy(&as);
-
-    // Re-initialize so host_add/connect can be called again
-    as_config config;
-    as_config_init(&config);
-    aerospike_init(&as, &config);
+    is_initialized = false;
 
     return enif_make_tuple2(env, atom_ok, enif_make_string(env, "disconnected", ERL_NIF_UTF8));
 }
@@ -707,6 +715,7 @@ static ErlNifFunc nif_funcs[] = {
     {"set_connections_per_node", 4, aspike_nif_set_connections_per_node},
     {"set_event_loops_amount", 1, aspike_nif_set_event_loops_amount},
     {"enable_statistic_collection", 1, aspike_nif_enable_statistic_collection},
+    {"init_client", 0, aspike_nif_init_client},
     {"nif_host_add", 2, aspike_nif_host_add},
     {"host_clear", 0, aspike_nif_host_clear},
     {"nif_host_list", 0, aspike_nif_host_list},
