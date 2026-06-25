@@ -14,4 +14,10 @@
 -define(DEFAULT_SET, "erl-set").
 -define(DEFAULT_KEY, "erl-key").
 
+-define(AEROSPIKE_OK, 0).
+-define(AEROSPIKE_ERR_CLIENT, -1).
+-define(AEROSPIKE_ERR_RECORD_NOT_FOUND, 2).
+-define(AEROSPIKE_ERR_TIMEOUT, 9).
+-define(AEROSPIKE_NO_RESPONSE, 15).
+
 -endif.
