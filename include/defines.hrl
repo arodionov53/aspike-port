@@ -1,6 +1,8 @@
 -ifndef(__DEFINES_HRL__).
 -define(__DEFINES_HRL__, 1).
 
+-include("return_codes.hrl").
+
 -define(APPNAME, aspike_port).
 
 -define(DEFAULT_HOST, application:get_env(?APPNAME, host, "127.0.0.1")).
@@ -13,11 +15,5 @@
 % -define(DEFAULT_NAMESPACE, "pi-stream").
 -define(DEFAULT_SET, "erl-set").
 -define(DEFAULT_KEY, "erl-key").
-
--define(AEROSPIKE_OK, 0).
--define(AEROSPIKE_ERR_CLIENT, -1).
--define(AEROSPIKE_ERR_RECORD_NOT_FOUND, 2).
--define(AEROSPIKE_ERR_TIMEOUT, 9).
--define(AEROSPIKE_NO_RESPONSE, 15).
 
 -endif.
