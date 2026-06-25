@@ -1,6 +1,8 @@
 -ifndef(__DEFINES_HRL__).
 -define(__DEFINES_HRL__, 1).
 
+-include("return_codes.hrl").
+
 -define(APPNAME, aspike_port).
 
 -define(DEFAULT_HOST, application:get_env(?APPNAME, host, "127.0.0.1")).
